@@ -1,0 +1,659 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ORG_ADMIN
+  TOURNAMENT_ADMIN
+  AUCTIONEER
+  ASSISTANT_AUCTIONEER
+  TEAM_OWNER
+  TEAM_MANAGER
+  PLAYER
+  SPECTATOR
+}
+
+enum TournamentStatus {
+  DRAFT
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  AUCTION_READY
+  AUCTION_LIVE
+  AUCTION_COMPLETED
+  TOURNAMENT_ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum AuctionMode {
+  ONLINE
+  OFFLINE
+  HYBRID
+}
+
+enum AuctionStatus {
+  DRAFT
+  READY
+  LIVE
+  PAUSED
+  SUSPENDED
+  SETTLEMENT_PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum LotStatus {
+  QUEUED
+  ACTIVE
+  SOLD
+  UNSOLD
+  WITHDRAWN
+  SKIPPED
+}
+
+enum BidSource {
+  ONLINE_OWNER
+  HOST_MANUAL
+  ASSISTANT_MANUAL
+}
+
+enum CricketRole {
+  BATSMAN
+  BOWLER
+  ALL_ROUNDER
+  WICKET_KEEPER
+}
+
+enum BattingStyle {
+  RIGHT_HAND
+  LEFT_HAND
+}
+
+enum BowlingStyle {
+  RIGHT_ARM_FAST
+  RIGHT_ARM_MEDIUM
+  RIGHT_ARM_SPIN
+  LEFT_ARM_FAST
+  LEFT_ARM_MEDIUM
+  LEFT_ARM_SPIN
+  NONE
+}
+
+enum InvitationStatus {
+  PENDING
+  SENT
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+enum NotificationChannel {
+  WHATSAPP
+  SMS
+  EMAIL
+  IN_APP
+}
+
+enum NotificationType {
+  PLAYER_SOLD
+  PLAYER_UNSOLD
+  PLAYER_REGISTERED
+  PLAYER_VERIFIED
+  AUCTION_SCHEDULE
+  AUCTION_REMINDER
+  INVITATION
+  REALLOCATION
+  TOURNAMENT_UPDATE
+}
+
+enum NotificationStatus {
+  PENDING
+  SENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+// -------------------------------------------------------------
+// CORE ENTITIES
+// -------------------------------------------------------------
+
+model User {
+  id              String       @id @default(uuid())
+  email           String       @unique
+  passwordHash    String
+  fullName        String
+  phone           String?
+  avatarUrl       String?
+  role            UserRole     @default(TOURNAMENT_ADMIN)
+  isVerified      Boolean      @default(false)
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // Relationships
+  orgMemberships  OrganizationMembership[]
+  tournaments     Tournament[]             @relation("CreatedTournaments")
+  teamMemberships TeamMembership[]
+  bidsPlaced      Bid[]
+  auditLogs       AuctionAuditLog[]
+  invitationsSent OwnerInvitation[]        @relation("SentInvitations")
+  notifications   Notification[]
+  shortlists      AuctionShortlist[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Organization {
+  id              String       @id @default(uuid())
+  name            String
+  slug            String       @unique
+  logoUrl         String?
+  bannerUrl       String?
+  primaryColor    String?      @default("#2563EB")
+  isVerified      Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  memberships     OrganizationMembership[]
+  tournaments     Tournament[]
+  subscription    Subscription?
+
+  @@index([slug])
+}
+
+model OrganizationMembership {
+  id              String       @id @default(uuid())
+  organizationId  String
+  userId          String
+  role            String       @default("ADMIN") // OWNER, ADMIN, MEMBER
+  createdAt       DateTime     @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+model Subscription {
+  id              String       @id @default(uuid())
+  organizationId  String       @unique
+  plan            String       @default("PROFESSIONAL") // FREE, STARTER, PROFESSIONAL, ENTERPRISE
+  status          String       @default("ACTIVE")
+  maxTournaments  Int          @default(10)
+  maxTeamsPerTour Int          @default(16)
+  maxPlayers      Int          @default(500)
+  validUntil      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Tournament {
+  id              String           @id @default(uuid())
+  organizationId  String
+  createdById     String
+  name            String
+  slug            String
+  logoUrl         String?
+  bannerUrl       String?
+  description     String?
+  sport           String           @default("Cricket")
+  season          String           @default("2027")
+  startDate       DateTime?
+  endDate         DateTime?
+  location        String?
+  currency        String           @default("INR")
+  status          TournamentStatus @default(DRAFT)
+  isPublic        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy       User             @relation("CreatedTournaments", fields: [createdById], references: [id])
+  settings        TournamentSettings?
+  teams           Team[]
+  players         Player[]
+  auctions        Auction[]
+  excelImports    ExcelImport[]
+  notifications   Notification[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model TournamentSettings {
+  id                   String     @id @default(uuid())
+  tournamentId         String     @unique
+  initialPurse         BigInt     @default(50000)
+  minSquadLimit        Int        @default(11)
+  maxSquadLimit        Int        @default(15)
+  categoryLimitsJson   Json?
+  requireConsentForSMS Boolean    @default(true)
+  showPriceInPublic    Boolean    @default(true)
+  autoNotifySold       Boolean    @default(true)
+
+  tournament           Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+}
+
+// -------------------------------------------------------------
+// TEAMS & OWNERSHIP
+// -------------------------------------------------------------
+
+model Team {
+  id              String           @id @default(uuid())
+  tournamentId    String
+  name            String
+  abbreviation    String
+  logoUrl         String?
+  bannerUrl       String?
+  color           String           @default("#2563EB")
+  initialPurse    BigInt           @default(50000)
+  remainingPurse  BigInt           @default(50000)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  tournament      Tournament       @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  memberships     TeamMembership[]
+  invitations     OwnerInvitation[]
+  bids            Bid[]
+  purchases       Purchase[]
+  purseLedgers    PurseLedger[]
+  shortlists      AuctionShortlist[]
+
+  @@index([tournamentId])
+}
+
+model TeamMembership {
+  id              String       @id @default(uuid())
+  teamId          String
+  userId          String
+  role            String       @default("PRIMARY_OWNER") // PRIMARY_OWNER, CO_OWNER, MANAGER
+  canBid          Boolean      @default(true)
+  canManageSquad  Boolean      @default(true)
+  canInvite       Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+
+  team            Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+}
+
+model OwnerInvitation {
+  id              String           @id @default(uuid())
+  teamId          String
+  invitedById     String
+  email           String
+  fullName        String
+  phone           String?
+  role            String           @default("PRIMARY_OWNER")
+  token           String           @unique
+  status          InvitationStatus @default(PENDING)
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime         @default(now())
+
+  team            Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy       User             @relation("SentInvitations", fields: [invitedById], references: [id])
+
+  @@index([token])
+  @@index([teamId])
+}
+
+// -------------------------------------------------------------
+// PLAYERS & CRICKET DATA
+// -------------------------------------------------------------
+
+model Player {
+  id              String                    @id @default(uuid())
+  tournamentId    String
+  externalPlayerId String?
+  fullName        String
+  displayName     String?
+  dateOfBirth     DateTime?
+  age             Int?
+  photoUrl        String?
+  mobileNumber    String?
+  alternateNumber String?
+  whatsappNumber  String?
+  email           String?
+  city            String?
+  state           String?
+  role            CricketRole               @default(ALL_ROUNDER)
+  battingStyle    BattingStyle?             @default(RIGHT_HAND)
+  bowlingStyle    BowlingStyle?             @default(NONE)
+  playerCategory  String                    @default("Regular") // Marquee, Batsman, Local, etc.
+  basePrice       BigInt                    @default(1000)
+  isVerified      Boolean                   @default(false)
+  verifiedAt      DateTime?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  tournament      Tournament                @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  stats           PlayerStatistics?
+  consents        PlayerNotificationConsent?
+  lots            AuctionLot[]
+  purchases       Purchase[]
+  shortlists      AuctionShortlist[]
+  notifications   Notification[]
+
+  @@index([tournamentId])
+  @@index([role])
+}
+
+model PlayerStatistics {
+  id              String   @id @default(uuid())
+  playerId        String   @unique
+  matches         Int      @default(0)
+  runs            Int      @default(0)
+  battingAverage  Decimal  @default(0.00) @db.Decimal(6, 2)
+  strikeRate      Decimal  @default(0.00) @db.Decimal(6, 2)
+  highestScore    Int      @default(0)
+  wickets         Int      @default(0)
+  bowlingAverage  Decimal  @default(0.00) @db.Decimal(6, 2)
+  economy         Decimal  @default(0.00) @db.Decimal(6, 2)
+  catches         Int      @default(0)
+
+  player          Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+}
+
+model PlayerNotificationConsent {
+  id              String   @id @default(uuid())
+  playerId        String   @unique
+  consentWhatsapp Boolean  @default(true)
+  consentSMS      Boolean  @default(true)
+  consentEmail    Boolean  @default(true)
+  verifiedPhone   Boolean  @default(false)
+  verifiedEmail   Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+
+  player          Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+}
+
+// -------------------------------------------------------------
+// AUCTION ENGINE
+// -------------------------------------------------------------
+
+model Auction {
+  id                        String        @id @default(uuid())
+  tournamentId              String
+  name                      String
+  mode                      AuctionMode   @default(HYBRID)
+  status                    AuctionStatus @default(DRAFT)
+  currency                  String        @default("INR")
+  version                   Int           @default(1)
+  currentLotId              String?
+  countdownSeconds          Int           @default(30)
+  bidExtensionSeconds       Int           @default(10)
+  extensionThresholdSeconds Int           @default(5)
+  isPaused                  Boolean       @default(false)
+  startedAt                 DateTime?
+  endedAt                   DateTime?
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+
+  tournament                Tournament    @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  rules                     AuctionRule?
+  lots                      AuctionLot[]
+  events                    AuctionEvent[]
+  auditLogs                 AuctionAuditLog[]
+
+  @@index([tournamentId])
+  @@index([status])
+}
+
+model AuctionRule {
+  id                   String        @id @default(uuid())
+  auctionId            String        @unique
+  incrementType        String        @default("PRICE_TIER")
+  fixedIncrement       BigInt        @default(500)
+  tiersJson            Json?         // Custom tier config
+  minSquadLimit        Int           @default(11)
+  maxSquadLimit        Int           @default(15)
+
+  auction              Auction       @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+}
+
+model AuctionLot {
+  id              String       @id @default(uuid())
+  auctionId       String
+  playerId        String
+  sequenceOrder   Int          @default(1)
+  basePrice       BigInt
+  currentBid      BigInt       @default(0)
+  winningTeamId   String?
+  status          LotStatus    @default(QUEUED)
+  startedAt       DateTime?
+  soldAt          DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  auction         Auction      @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  player          Player       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  bids            Bid[]
+  purchase        Purchase?
+
+  @@index([auctionId, sequenceOrder])
+  @@index([status])
+}
+
+model Bid {
+  id              String       @id @default(uuid())
+  lotId           String
+  teamId          String
+  userId          String?
+  bidAmount       BigInt
+  bidSource       BidSource    @default(ONLINE_OWNER)
+  sequenceNumber  Int
+  isReversed      Boolean      @default(false)
+  reversedAt      DateTime?
+  idempotencyKey  String?
+  createdAt       DateTime     @default(now())
+
+  lot             AuctionLot   @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  team            Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user            User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([lotId, sequenceNumber])
+  @@index([teamId])
+  @@index([idempotencyKey])
+}
+
+model Purchase {
+  id              String       @id @default(uuid())
+  lotId           String       @unique
+  teamId          String
+  playerId        String
+  purchasePrice   BigInt
+  soldAt          DateTime     @default(now())
+  isReversed      Boolean      @default(false)
+  reversedAt      DateTime?
+  reversalReason  String?
+
+  lot             AuctionLot   @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  team            Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player          Player       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  purseLedger     PurseLedger?
+
+  @@index([teamId])
+  @@index([playerId])
+}
+
+model PurseLedger {
+  id              String       @id @default(uuid())
+  teamId          String
+  purchaseId      String?      @unique
+  entryType       String       // INITIAL, DEDUCTION, REFUND_REVERSAL, ADJUSTMENT
+  amount          BigInt       // Positive or negative
+  balanceAfter    BigInt
+  description     String
+  createdAt       DateTime     @default(now())
+
+  team            Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  purchase        Purchase?    @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+
+  @@index([teamId])
+}
+
+model AuctionEvent {
+  id              String       @id @default(uuid())
+  auctionId       String
+  sequenceNumber  Int
+  auctionVersion  Int
+  eventType       String
+  payload         Json
+  createdAt       DateTime     @default(now())
+
+  auction         Auction      @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+
+  @@index([auctionId, sequenceNumber])
+}
+
+model AuctionAuditLog {
+  id              String       @id @default(uuid())
+  auctionId       String
+  userId          String?
+  action          String
+  details         Json?
+  createdAt       DateTime     @default(now())
+
+  auction         Auction      @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  user            User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([auctionId])
+}
+
+model AuctionShortlist {
+  id              String       @id @default(uuid())
+  teamId          String
+  userId          String
+  playerId        String
+  notes           String?
+  createdAt       DateTime     @default(now())
+
+  team            Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  player          Player       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, playerId])
+}
+
+// -------------------------------------------------------------
+// EXCEL IMPORT ENGINE
+// -------------------------------------------------------------
+
+model ExcelImport {
+  id              String       @id @default(uuid())
+  tournamentId    String
+  fileName        String
+  fileSize        Int
+  totalRows       Int          @default(0)
+  validRows       Int          @default(0)
+  invalidRows     Int          @default(0)
+  importedRows    Int          @default(0)
+  skippedRows     Int          @default(0)
+  status          String       @default("PENDING") // PENDING, MAPPED, VALIDATED, COMPLETED, FAILED
+  columnMapping   Json?
+  errorSummary    Json?
+  createdAt       DateTime     @default(now())
+
+  tournament      Tournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  rows            ExcelImportRow[]
+
+  @@index([tournamentId])
+}
+
+model ExcelImportRow {
+  id              String       @id @default(uuid())
+  importId        String
+  rowIndex        Int
+  rawData         Json
+  mappedData      Json?
+  isValid         Boolean      @default(false)
+  validationErrors Json?
+  isImported      Boolean      @default(false)
+
+  importJob       ExcelImport  @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId, rowIndex])
+}
+
+// -------------------------------------------------------------
+// NOTIFICATIONS & OUTBOX
+// -------------------------------------------------------------
+
+model Notification {
+  id              String              @id @default(uuid())
+  tournamentId    String?
+  userId          String?
+  playerId        String?
+  channel         NotificationChannel
+  type            NotificationType
+  recipient       String              // Phone or Email
+  subject         String?
+  message         String
+  status          NotificationStatus  @default(PENDING)
+  retryCount      Int                 @default(0)
+  errorMessage    String?
+  providerResponse Json?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  tournament      Tournament?         @relation(fields: [tournamentId], references: [id], onDelete: SetNull)
+  user            User?               @relation(fields: [userId], references: [id], onDelete: SetNull)
+  player          Player?             @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  deliveries      NotificationDelivery[]
+
+  @@index([status])
+  @@index([playerId])
+}
+
+model NotificationDelivery {
+  id              String       @id @default(uuid())
+  notificationId  String
+  channel         NotificationChannel
+  providerName    String       // WHATSAPP_CLOUD_API, RESEND, TWILIO, MOCK
+  status          String
+  responsePayload Json?
+  createdAt       DateTime     @default(now())
+
+  notification    Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+}
+
+model OutboxEvent {
+  id              String       @id @default(uuid())
+  aggregateType   String       // AUCTION, LOT, PURCHASE
+  aggregateId     String
+  eventType       String       // PLAYER_SOLD, BID_PLACED
+  payload         Json
+  isProcessed     Boolean      @default(false)
+  processedAt     DateTime?
+  errorMessage    String?
+  retryCount      Int          @default(0)
+  createdAt       DateTime     @default(now())
+
+  @@index([isProcessed, createdAt])
+}
+
+model IdempotencyKey {
+  key             String       @id
+  resource        String
+  responsePayload Json
+  createdAt       DateTime     @default(now())
+
+  @@index([createdAt])
+}

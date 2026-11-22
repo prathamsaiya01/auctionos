@@ -5,7 +5,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/authStore';
-import { Trophy, ShieldCheck, Users, Check, ArrowRight, Lock } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Trophy, ShieldCheck, Users, Check, ArrowRight, Lock, Sparkles } from 'lucide-react';
 
 export default function InviteAcceptPage() {
   const params = useParams();
@@ -62,7 +64,10 @@ export default function InviteAcceptPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <p className="text-sm font-semibold text-gray-500">Verifying invitation token...</p>
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-500">
+          <div className="w-5 h-5 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
+          <span>Verifying invitation credentials...</span>
+        </div>
       </div>
     );
   }
@@ -70,8 +75,8 @@ export default function InviteAcceptPage() {
   if (!invite) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
-          <p className="text-sm font-bold text-red-600">Invitation not found or link has expired.</p>
+        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full text-center border border-admin-border">
+          <p className="text-sm font-bold text-rose-600">Invitation not found or security token has expired.</p>
         </div>
       </div>
     );
@@ -79,72 +84,73 @@ export default function InviteAcceptPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-xl border border-admin-border/80 overflow-hidden">
         {/* Banner */}
-        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 text-white text-center">
-          <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center shadow-lg">
+        <div className="bg-gradient-to-br from-brand-600 via-indigo-600 to-purple-600 p-8 text-white text-center relative overflow-hidden">
+          <div className="w-16 h-16 mx-auto mb-3.5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
             <Trophy className="w-8 h-8 text-yellow-300" />
           </div>
-          <span className="text-[10px] font-black uppercase tracking-widest text-blue-200">
-            OFFICIAL TEAM INVITATION
+          <span className="text-[10px] font-black uppercase tracking-widest text-brand-200">
+            OFFICIAL FRANCHISE INVITATION
           </span>
-          <h1 className="text-2xl font-black mt-1">{invite.tournament.name}</h1>
+          <h1 className="text-2xl font-black mt-1 tracking-tight">{invite.tournament?.name || 'Tournament'}</h1>
+
+          {/* Background flare */}
+          <div className="absolute -right-8 -bottom-8 w-32 h-32 rounded-full bg-white/10 blur-xl pointer-events-none" />
         </div>
 
         {/* Card Content */}
         <div className="p-8 space-y-6">
-          <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center gap-4">
+          <div className="p-4 bg-slate-50 rounded-2xl border border-admin-border flex items-center gap-4">
             <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center font-black text-white text-base shadow-sm shrink-0"
+              className="w-12 h-12 rounded-2xl flex items-center justify-center font-black text-white text-base shadow-sm shrink-0 border border-white/20"
               style={{ backgroundColor: invite.team.color || '#2563EB' }}
             >
               {invite.team.abbreviation}
             </div>
             <div>
-              <span className="text-[10px] uppercase font-bold text-gray-400 block">Assigned Franchise</span>
-              <h3 className="font-black text-lg text-gray-900 leading-tight">{invite.team.name}</h3>
-              <p className="text-xs text-gray-500">Role: {invite.role.replace('_', ' ')}</p>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Assigned Franchise</span>
+              <h3 className="font-black text-lg text-admin-text leading-tight">{invite.team.name}</h3>
+              <p className="text-xs text-brand-600 font-bold mt-0.5">Role: {invite.role.replace(/_/g, ' ')}</p>
             </div>
           </div>
 
-          <div className="text-xs text-gray-600 leading-relaxed">
-            Hello <span className="font-bold text-gray-900">{invite.fullName}</span>! You have been invited by{' '}
-            <span className="font-bold text-gray-900">{invite.invitedBy?.fullName || 'the tournament committee'}</span> to
-            take ownership of {invite.team.name} and participate in the live cricket player auction.
+          <div className="text-xs text-slate-600 leading-relaxed font-medium">
+            Welcome <span className="font-black text-admin-text">{invite.fullName}</span>! You have been authorized by{' '}
+            <span className="font-black text-admin-text">{invite.invitedBy?.fullName || 'the tournament committee'}</span> to
+            take ownership of <span className="font-bold text-admin-text">{invite.team.name}</span> and participate in the live cricket player auction.
           </div>
 
           {error && (
-            <div className="p-3 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl">
+            <div className="p-3 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl">
               {error}
             </div>
           )}
 
           {!user && (
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                Set Account Password
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-gray-400 absolute left-3.5 top-3.5" />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Create a password (min 6 chars)"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Input
+                label="Set Your Account Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Create password (min 6 characters)"
+                icon={Lock}
+                required
+              />
             </div>
           )}
 
-          <button
+          <Button
+            variant="primary"
+            size="lg"
+            className="w-full"
+            loading={submitting}
             onClick={handleAccept}
-            disabled={submitting}
-            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-black shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            icon={ArrowRight}
           >
             {submitting ? 'Confirming Ownership...' : 'Accept Team Ownership & Proceed'}
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
       </div>
     </div>

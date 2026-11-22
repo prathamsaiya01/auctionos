@@ -11,6 +11,20 @@ async function runTests() {
   let passed = 0;
   let failed = 0;
 
+  // Clean test setup for idempotent test execution
+  await prisma.outboxEvent.deleteMany({});
+  await prisma.notification.deleteMany({});
+  await prisma.purseLedger.deleteMany({});
+  await prisma.purchase.deleteMany({});
+  await prisma.bid.deleteMany({});
+  await prisma.auctionAuditLog.deleteMany({});
+  await prisma.team.updateMany({
+    data: { remainingPurse: BigInt(50000) }
+  });
+  await prisma.auctionLot.updateMany({
+    data: { status: LotStatus.QUEUED, currentBid: BigInt(0), winningTeamId: null, soldAt: null }
+  });
+
   function assert(condition: boolean, desc: string) {
     if (condition) {
       console.log(`  ✅ PASS: ${desc}`);

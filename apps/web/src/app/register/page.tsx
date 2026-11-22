@@ -3,9 +3,12 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api } from '../../lib/api';
-import { useAuthStore } from '../../stores/authStore';
-import { Trophy, Mail, Lock, User, Phone, ArrowRight } from 'lucide-react';
+import { api } from '@/lib/api';
+import { useAuthStore } from '@/stores/authStore';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Trophy, Mail, Lock, User, Phone, ArrowRight, Sparkles } from 'lucide-react';
 import { UserRole } from '@auctionos/shared';
 
 export default function RegisterPage() {
@@ -16,7 +19,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState(UserRole.TOURNAMENT_ADMIN);
+  const [role, setRole] = useState<string>(UserRole.TOURNAMENT_ADMIN);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -46,110 +49,95 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
-        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 text-white text-center">
-          <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center shadow-lg">
-            <Trophy className="w-6 h-6 text-yellow-300" />
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Background ambient gradient blurs */}
+      <div className="absolute top-1/4 -left-32 w-96 h-96 bg-brand-400/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-purple-400/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-premium border border-admin-border/80 overflow-hidden relative z-10">
+        <div className="bg-gradient-to-br from-brand-600 via-indigo-600 to-purple-600 p-8 text-white text-center relative overflow-hidden">
+          <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
+            <Trophy className="w-8 h-8 text-yellow-300" />
           </div>
-          <h1 className="text-2xl font-black tracking-tight">Create AuctionOS Account</h1>
-          <p className="text-blue-100 text-xs mt-1">Organise and participate in professional cricket auctions</p>
+          <h1 className="text-2xl font-black tracking-tight text-white">Create AuctionOS Account</h1>
+          <p className="text-brand-100 text-xs mt-1">Organise, manage, and participate in cricket auctions</p>
+          <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none" />
         </div>
 
         <div className="p-8 space-y-4">
           {error && (
-            <div className="p-3 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl">
+            <div className="p-3 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl">
               {error}
             </div>
           )}
 
-          <form onSubmit={handleRegister} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Full Name</label>
-              <div className="relative">
-                <User className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
-                <input
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="e.g. Rahul Dravid"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
-                />
-              </div>
-            </div>
+          <form onSubmit={handleRegister} className="space-y-3.5">
+            <Input
+              label="Full Name"
+              type="text"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="e.g. Rahul Dravid"
+              icon={User}
+            />
 
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Email Address</label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="rahul@example.com"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
-                />
-              </div>
-            </div>
+            <Input
+              label="Email Address"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="rahul@example.com"
+              icon={Mail}
+            />
 
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Phone Number (E.164)</label>
-              <div className="relative">
-                <Phone className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
-                <input
-                  type="text"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+919876543210"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
-                />
-              </div>
-            </div>
+            <Input
+              label="Phone Number (E.164 / WhatsApp)"
+              type="text"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+919876543210"
+              icon={Phone}
+            />
 
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Password</label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Minimum 6 characters"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
-                />
-              </div>
-            </div>
+            <Input
+              label="Password"
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Minimum 6 characters"
+              icon={Lock}
+            />
 
-            <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Register As</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as UserRole)}
-                className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold focus:outline-none"
-              >
-                <option value={UserRole.TOURNAMENT_ADMIN}>Tournament Organizer</option>
-                <option value={UserRole.AUCTIONEER}>Auctioneer / Host</option>
-                <option value={UserRole.TEAM_OWNER}>Team Owner</option>
-                <option value={UserRole.PLAYER}>Player</option>
-              </select>
-            </div>
+            <Select
+              label="Register As"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              options={[
+                { value: UserRole.TOURNAMENT_ADMIN, label: 'Tournament Organizer (Full Admin)' },
+                { value: UserRole.AUCTIONEER, label: 'Auctioneer / Live Host' },
+                { value: UserRole.TEAM_OWNER, label: 'Franchise Team Owner' },
+                { value: UserRole.PLAYER, label: 'Cricket Player' }
+              ]}
+            />
 
-            <button
+            <Button
               type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              variant="primary"
+              size="lg"
+              className="w-full mt-2"
+              loading={loading}
+              icon={ArrowRight}
             >
               {loading ? 'Creating Account...' : 'Register Account'}
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            </Button>
           </form>
 
-          <p className="text-center text-xs text-gray-500 pt-2">
+          <p className="text-center text-xs text-admin-muted pt-2">
             Already have an account?{' '}
-            <Link href="/login" className="font-bold text-blue-600 hover:underline">
+            <Link href="/login" className="font-bold text-brand-600 hover:underline">
               Sign In
             </Link>
           </p>

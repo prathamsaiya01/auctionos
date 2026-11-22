@@ -2,7 +2,8 @@
 
 import React, { useEffect } from 'react';
 import './globals.css';
-import { useAuthStore } from '../stores/authStore';
+import { useAuthStore } from '@/stores/authStore';
+import { AuthGuard } from '@/components/auth/AuthGuard';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const queryClient = new QueryClient({
@@ -27,9 +28,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <title>AuctionOS — Sports Player Auction & Tournament Management SaaS</title>
         <meta name="description" content="Every Bid. Every Player. Every Tournament. One Platform." />
       </head>
-      <body className="bg-admin-secondary text-admin-text min-h-screen antialiased">
+      <body className="bg-admin-bg text-admin-text min-h-screen antialiased">
         <QueryClientProvider client={queryClient}>
-          {children}
+          <AuthGuard>
+            {children}
+          </AuthGuard>
         </QueryClientProvider>
       </body>
     </html>

@@ -1,10 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api } from '../../lib/api';
-import { useAuthStore } from '../../stores/authStore';
-import { Trophy, ShieldCheck, Gavel, UserCheck, ArrowRight, Lock, Mail } from 'lucide-react';
+import { api } from '@/lib/api';
+import { useAuthStore } from '@/stores/authStore';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Trophy, ShieldCheck, Gavel, UserCheck, ArrowRight, Lock, Mail, Sparkles } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -40,23 +43,28 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Background ambient gradient blurs */}
+      <div className="absolute top-1/4 -left-32 w-96 h-96 bg-brand-400/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-purple-400/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-premium border border-admin-border/80 overflow-hidden relative z-10">
         {/* Header */}
-        <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-8 text-white text-center">
-          <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/20 flex items-center justify-center shadow-lg">
+        <div className="bg-gradient-to-br from-brand-600 via-indigo-600 to-purple-600 p-8 text-white text-center relative overflow-hidden">
+          <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
             <Trophy className="w-8 h-8 text-yellow-300" />
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight">AUCTIONOS</h1>
-          <p className="text-blue-100 text-xs mt-1 font-medium">
+          <h1 className="text-3xl font-black tracking-tight text-white">AUCTIONOS</h1>
+          <p className="text-brand-100 text-xs mt-1 font-medium">
             Every Bid. Every Player. Every Tournament. One Platform.
           </p>
+          <div className="absolute -right-6 -bottom-6 w-28 h-28 rounded-full bg-white/10 blur-xl pointer-events-none" />
         </div>
 
         {/* Form Body */}
-        <div className="p-8 space-y-6">
+        <div className="p-8 space-y-5">
           {error && (
-            <div className="p-3 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg">
+            <div className="p-3 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl">
               {error}
             </div>
           )}
@@ -68,105 +76,100 @@ export default function LoginPage() {
             }}
             className="space-y-4"
           >
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-gray-400 absolute left-3.5 top-3.5" />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@auctionos.com"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all"
-                />
-              </div>
-            </div>
+            <Input
+              label="Email Address"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin@auctionos.com"
+              icon={Mail}
+            />
 
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-gray-400 absolute left-3.5 top-3.5" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all"
-                />
-              </div>
-            </div>
+            <Input
+              label="Password"
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              icon={Lock}
+            />
 
-            <button
+            <Button
               type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-md shadow-blue-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              variant="primary"
+              size="lg"
+              className="w-full"
+              loading={loading}
+              icon={ArrowRight}
             >
               {loading ? 'Authenticating...' : 'Sign In to Platform'}
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            </Button>
           </form>
 
           {/* Quick Demo Logins Section */}
-          <div className="pt-4 border-t border-gray-100">
-            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3 text-center">
+          <div className="pt-4 border-t border-admin-border">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 text-center">
               Quick Role-Based Demo Logins
             </p>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <button
                 type="button"
                 onClick={() => handleLogin('admin@auctionos.com', 'Password123!')}
-                className="p-2.5 border border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 rounded-xl text-left transition-all"
+                className="p-2.5 border border-admin-border hover:border-brand-500 hover:bg-brand-50/50 rounded-2xl text-left transition-all"
               >
-                <div className="flex items-center gap-1.5 font-bold text-gray-800">
-                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                  Super Admin
+                <div className="flex items-center gap-1.5 font-bold text-admin-text">
+                  <ShieldCheck className="w-3.5 h-3.5 text-brand-600" />
+                  <span>Super Admin</span>
                 </div>
-                <div className="text-[10px] text-gray-400 truncate">admin@auctionos.com</div>
+                <div className="text-[10px] text-admin-muted truncate font-mono">admin@auctionos.com</div>
               </button>
 
               <button
                 type="button"
                 onClick={() => handleLogin('auctioneer@mpl.com', 'Password123!')}
-                className="p-2.5 border border-gray-200 hover:border-purple-500 hover:bg-purple-50/50 rounded-xl text-left transition-all"
+                className="p-2.5 border border-admin-border hover:border-purple-500 hover:bg-purple-50/50 rounded-2xl text-left transition-all"
               >
-                <div className="flex items-center gap-1.5 font-bold text-gray-800">
+                <div className="flex items-center gap-1.5 font-bold text-admin-text">
                   <Gavel className="w-3.5 h-3.5 text-purple-600" />
-                  Auctioneer Host
+                  <span>Auctioneer</span>
                 </div>
-                <div className="text-[10px] text-gray-400 truncate">auctioneer@mpl.com</div>
+                <div className="text-[10px] text-admin-muted truncate font-mono">auctioneer@mpl.com</div>
               </button>
 
               <button
                 type="button"
                 onClick={() => handleLogin('owner.strikers@mpl.com', 'Password123!')}
-                className="p-2.5 border border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 rounded-xl text-left transition-all"
+                className="p-2.5 border border-admin-border hover:border-blue-500 hover:bg-blue-50/50 rounded-2xl text-left transition-all"
               >
-                <div className="flex items-center gap-1.5 font-bold text-gray-800">
+                <div className="flex items-center gap-1.5 font-bold text-admin-text">
                   <UserCheck className="w-3.5 h-3.5 text-blue-600" />
-                  Strikers Owner
+                  <span>Strikers Owner</span>
                 </div>
-                <div className="text-[10px] text-gray-400 truncate">owner.strikers@mpl.com</div>
+                <div className="text-[10px] text-admin-muted truncate font-mono">owner.strikers@mpl.com</div>
               </button>
 
               <button
                 type="button"
                 onClick={() => handleLogin('owner.blasters@mpl.com', 'Password123!')}
-                className="p-2.5 border border-gray-200 hover:border-red-500 hover:bg-red-50/50 rounded-xl text-left transition-all"
+                className="p-2.5 border border-admin-border hover:border-rose-500 hover:bg-rose-50/50 rounded-2xl text-left transition-all"
               >
-                <div className="flex items-center gap-1.5 font-bold text-gray-800">
-                  <UserCheck className="w-3.5 h-3.5 text-red-600" />
-                  Blasters Owner
+                <div className="flex items-center gap-1.5 font-bold text-admin-text">
+                  <UserCheck className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Blasters Owner</span>
                 </div>
-                <div className="text-[10px] text-gray-400 truncate">owner.blasters@mpl.com</div>
+                <div className="text-[10px] text-admin-muted truncate font-mono">owner.blasters@mpl.com</div>
               </button>
             </div>
           </div>
+
+          <p className="text-center text-xs text-admin-muted pt-2">
+            Need a new tournament account?{' '}
+            <Link href="/register" className="font-bold text-brand-600 hover:underline">
+              Create Account
+            </Link>
+          </p>
         </div>
       </div>
     </div>

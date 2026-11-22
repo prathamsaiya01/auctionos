@@ -6,15 +6,21 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { AdminSidebar } from '@/components/layout/AdminSidebar';
 import { AdminNavbar } from '@/components/layout/AdminNavbar';
+import { MetricCard } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import {
   Bell,
-  CheckCircle,
+  CheckCircle2,
   AlertCircle,
   Clock,
   RotateCcw,
   MessageSquare,
   Mail,
-  Send
+  Send,
+  Smartphone,
+  RefreshCw
 } from 'lucide-react';
 
 export default function NotificationsDeliveryPage() {
@@ -50,89 +56,100 @@ export default function NotificationsDeliveryPage() {
       <main className="flex-1 flex flex-col min-w-0">
         <AdminNavbar
           title="Automated Player Communications"
-          subtitle="Real-time delivery log for Meta WhatsApp Cloud API, Email and SMS auction notifications"
+          subtitle="Real-time delivery log for Meta WhatsApp Cloud API, Email, and SMS auction notifications"
+          actions={
+            <Button
+              variant="outline"
+              size="sm"
+              icon={RefreshCw}
+              onClick={() => refetch()}
+            >
+              Refresh Logs
+            </Button>
+          }
         />
 
         <div className="p-8 space-y-6">
           {/* Top Metric Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-            <div className="bg-white p-5 rounded-2xl border border-admin-border shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-admin-muted uppercase tracking-wider">Total Dispatches</p>
-                <h3 className="text-2xl font-black text-admin-text mt-1">{stats.total}</h3>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-blue-50 text-admin-primary flex items-center justify-center">
-                <Send className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-admin-border shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-admin-muted uppercase tracking-wider">Delivered</p>
-                <h3 className="text-2xl font-black text-green-600 mt-1">{stats.delivered}</h3>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center">
-                <CheckCircle className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-admin-border shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-admin-muted uppercase tracking-wider">Failed / Bounced</p>
-                <h3 className="text-2xl font-black text-red-600 mt-1">{stats.failed}</h3>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
-                <AlertCircle className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-admin-border shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold text-admin-muted uppercase tracking-wider">Queued / Sending</p>
-                <h3 className="text-2xl font-black text-amber-600 mt-1">{stats.pending}</h3>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                <Clock className="w-6 h-6" />
-              </div>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <MetricCard
+              title="Total Dispatches"
+              value={stats.total}
+              icon={Send}
+              iconColor="text-brand-600"
+              iconBg="bg-brand-50"
+            />
+            <MetricCard
+              title="Delivered Successfully"
+              value={stats.delivered}
+              icon={CheckCircle2}
+              iconColor="text-emerald-600"
+              iconBg="bg-emerald-50"
+            />
+            <MetricCard
+              title="Failed / Bounced"
+              value={stats.failed}
+              icon={AlertCircle}
+              iconColor="text-rose-600"
+              iconBg="bg-rose-50"
+            />
+            <MetricCard
+              title="Queued / Processing"
+              value={stats.pending}
+              icon={Clock}
+              iconColor="text-amber-600"
+              iconBg="bg-amber-50"
+            />
           </div>
 
           {/* Notifications Log Table */}
-          <div className="bg-white rounded-2xl border border-admin-border shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <span className="text-xs font-bold text-gray-700">Recent Automated Messages</span>
-              <span className="text-xs text-admin-muted">Auto-refreshes every 4s</span>
+          <div className="bg-white rounded-3xl border border-admin-border/80 shadow-xs overflow-hidden">
+            <div className="p-5 border-b border-admin-border/80 flex items-center justify-between">
+              <div>
+                <span className="text-sm font-black text-admin-text">Outbox & Delivery Receipts</span>
+                <p className="text-xs text-admin-muted mt-0.5">Automated transaction alerts sent directly to cricketers' WhatsApp & email</p>
+              </div>
+              <span className="text-xs text-slate-400 font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Auto-refreshes every 4s</span>
+              </span>
             </div>
 
             {isLoading ? (
-              <div className="p-12 text-center text-xs font-semibold text-gray-400">Loading delivery reports...</div>
+              <div className="p-12 text-center text-xs font-semibold text-admin-muted">Loading delivery logs...</div>
             ) : notifications.length === 0 ? (
-              <div className="p-12 text-center text-xs text-gray-500">
-                No notifications logged yet. When a player is marked SOLD in the auction, automatic notifications will be triggered here.
+              <div className="p-12 text-center text-xs text-admin-muted">
+                No notification receipts logged yet. When players are sold in the auction room, WhatsApp and Email congratulatory messages will be dispatched and logged here.
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50 text-gray-500 font-bold uppercase tracking-wider border-b border-gray-100">
+                  <thead className="bg-slate-50 text-admin-muted font-bold uppercase tracking-wider border-b border-admin-border">
                     <tr>
-                      <th className="py-3 px-4">Player</th>
-                      <th className="py-3 px-4">Channel</th>
-                      <th className="py-3 px-4">Recipient</th>
-                      <th className="py-3 px-4">Message Summary</th>
-                      <th className="py-3 px-4">Delivery Status</th>
-                      <th className="py-3 px-4">Timestamp</th>
-                      <th className="py-3 px-4 text-right">Action</th>
+                      <th className="py-3.5 px-5">Player</th>
+                      <th className="py-3.5 px-4">Channel</th>
+                      <th className="py-3.5 px-4">Recipient Destination</th>
+                      <th className="py-3.5 px-4">Message Summary</th>
+                      <th className="py-3.5 px-4">Delivery Status</th>
+                      <th className="py-3.5 px-4">Timestamp</th>
+                      <th className="py-3.5 px-5 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {notifications.map((n: any) => (
-                      <tr key={n.id} className="hover:bg-gray-50/50">
-                        <td className="py-3 px-4 font-bold text-gray-900">{n.player?.fullName || 'Tournament User'}</td>
+                      <tr key={n.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3 px-5 font-black text-admin-text">{n.player?.fullName || 'Tournament User'}</td>
 
                         <td className="py-3 px-4">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-green-50 text-green-700 border border-green-200">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                            n.channel === 'WHATSAPP'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : n.channel === 'EMAIL'
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : 'bg-purple-50 text-purple-700 border-purple-200'
+                          }`}>
                             {n.channel === 'WHATSAPP' ? (
-                              <MessageSquare className="w-3 h-3 text-green-600" />
+                              <Smartphone className="w-3 h-3 text-emerald-600" />
                             ) : (
                               <Mail className="w-3 h-3 text-blue-600" />
                             )}
@@ -140,37 +157,39 @@ export default function NotificationsDeliveryPage() {
                           </span>
                         </td>
 
-                        <td className="py-3 px-4 font-mono text-gray-600">{n.recipient}</td>
+                        <td className="py-3 px-4 font-mono font-medium text-admin-text">{n.recipient}</td>
 
-                        <td className="py-3 px-4 text-gray-600 max-w-xs truncate">{n.message}</td>
+                        <td className="py-3 px-4 text-slate-600 max-w-xs truncate">{n.message}</td>
 
                         <td className="py-3 px-4">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          <Badge
+                            variant={
                               n.status === 'DELIVERED'
-                                ? 'bg-green-50 text-green-700 border border-green-200'
+                                ? 'success'
                                 : n.status === 'FAILED'
-                                ? 'bg-red-50 text-red-700 border border-red-200'
-                                : 'bg-amber-50 text-amber-700 border border-amber-200'
-                            }`}
+                                ? 'danger'
+                                : 'warning'
+                            }
+                            size="sm"
                           >
                             {n.status}
-                          </span>
+                          </Badge>
                         </td>
 
-                        <td className="py-3 px-4 text-gray-400 text-[11px]">
+                        <td className="py-3 px-4 text-slate-400 text-[11px] tabular-nums">
                           {new Date(n.createdAt).toLocaleTimeString()}
                         </td>
 
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-3 px-5 text-right">
                           {n.status === 'FAILED' && (
-                            <button
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              icon={RotateCcw}
                               onClick={() => handleRetry(n.id)}
-                              className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-[10px] font-bold flex items-center gap-1 ml-auto"
                             >
-                              <RotateCcw className="w-3 h-3" />
-                              <span>Retry</span>
-                            </button>
+                              Retry
+                            </Button>
                           )}
                         </td>
                       </tr>

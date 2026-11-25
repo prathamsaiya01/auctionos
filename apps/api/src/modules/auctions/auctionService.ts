@@ -11,7 +11,82 @@ import {
 import { validateBid, calculateNextBid } from '@auctionos/auction-engine';
 import { getIO } from '../../sockets/socketServer';
 
+interface AuctionTimerState {
+  auctionId: string;
+  durationSeconds: number;
+  deadlineMs: number;
+  remainingMs: number;
+  isPaused: boolean;
+  activeLotId: string | null;
+}
+
+const auctionTimers = new Map<string, AuctionTimerState>();
+
 export class AuctionService {
+  /**
+   * Authoritative timer state helpers
+   */
+  static getOrCreateTimer(auctionId: string, activeLotId?: string | null, countdownSecondsConfig?: number): AuctionTimerState {
+    let timer = auctionTimers.get(auctionId);
+    const duration = countdownSecondsConfig && countdownSecondsConfig > 0 ? countdownSecondsConfig : 15;
+
+    if (!timer) {
+      timer = {
+        auctionId,
+        durationSeconds: duration,
+        deadlineMs: Date.now() + duration * 1000,
+        remainingMs: duration * 1000,
+        isPaused: false,
+        activeLotId: activeLotId || null,
+      };
+      auctionTimers.set(auctionId, timer);
+    } else if (activeLotId && timer.activeLotId !== activeLotId) {
+      timer.activeLotId = activeLotId;
+      timer.durationSeconds = duration;
+      timer.deadlineMs = Date.now() + duration * 1000;
+      timer.remainingMs = duration * 1000;
+      timer.isPaused = false;
+    }
+    return timer;
+  }
+
+  static resetTimer(auctionId: string, activeLotId?: string | null, durationSeconds = 15): AuctionTimerState {
+    const timer: AuctionTimerState = {
+      auctionId,
+      durationSeconds,
+      deadlineMs: Date.now() + durationSeconds * 1000,
+      remainingMs: durationSeconds * 1000,
+      isPaused: false,
+      activeLotId: activeLotId || null,
+    };
+    auctionTimers.set(auctionId, timer);
+    return timer;
+  }
+
+  static pauseTimer(auctionId: string) {
+    const timer = auctionTimers.get(auctionId);
+    if (timer) {
+      timer.isPaused = true;
+      timer.remainingMs = Math.max(0, timer.deadlineMs - Date.now());
+    }
+  }
+
+  static resumeTimer(auctionId: string) {
+    const timer = auctionTimers.get(auctionId);
+    if (timer) {
+      timer.isPaused = false;
+      timer.deadlineMs = Date.now() + timer.remainingMs;
+    }
+  }
+
+  static stopTimer(auctionId: string) {
+    const timer = auctionTimers.get(auctionId);
+    if (timer) {
+      timer.deadlineMs = 0;
+      timer.remainingMs = 0;
+    }
+  }
+
   /**
    * Builds an authoritative, real-time snapshot of the auction
    */
@@ -186,6 +261,27 @@ export class AuctionService {
       soldAt: p.soldAt.toISOString()
     }));
 
+    // Authoritative countdown timer calculation
+    const timer = AuctionService.getOrCreateTimer(
+      auction.id,
+      activeLot?.id,
+      auction.countdownSeconds || 15
+    );
+
+    let countdownRemainingSeconds: number = 0;
+    let countdownEndsAt: string | null = null;
+
+    if (activeLot && auction.status === AuctionStatus.LIVE) {
+      if (auction.isPaused || timer.isPaused) {
+        countdownRemainingSeconds = Math.max(0, Math.ceil(timer.remainingMs / 1000));
+        countdownEndsAt = null;
+      } else {
+        const diffMs = Math.max(0, timer.deadlineMs - Date.now());
+        countdownRemainingSeconds = Math.ceil(diffMs / 1000);
+        countdownEndsAt = new Date(timer.deadlineMs).toISOString();
+      }
+    }
+
     return {
       auctionId: auction.id,
       tournamentId: auction.tournamentId,
@@ -199,6 +295,8 @@ export class AuctionService {
       nextLots,
       recentSoldLots,
       teams: teamSnapshots,
+      countdownRemainingSeconds,
+      countdownEndsAt,
       nextBidAmount,
       isPaused: auction.isPaused,
       serverTimestamp: new Date().toISOString()
@@ -254,6 +352,8 @@ export class AuctionService {
       }
     });
 
+    AuctionService.resetTimer(auctionId, activeLot?.id, auction.countdownSeconds || 15);
+
     return await AuctionService.broadcastSnapshot(auctionId);
   }
 
@@ -268,6 +368,12 @@ export class AuctionService {
         version: { increment: 1 }
       }
     });
+
+    if (shouldPause) {
+      AuctionService.pauseTimer(auctionId);
+    } else {
+      AuctionService.resumeTimer(auctionId);
+    }
 
     return await AuctionService.broadcastSnapshot(auctionId);
   }
@@ -309,6 +415,8 @@ export class AuctionService {
           version: { increment: 1 }
         }
       });
+
+      AuctionService.resetTimer(auctionId, nextLot.id, auction.countdownSeconds || 15);
     } else {
       // No more players
       await prisma.auction.update({
@@ -319,6 +427,8 @@ export class AuctionService {
           version: { increment: 1 }
         }
       });
+
+      AuctionService.stopTimer(auctionId);
     }
 
     return await AuctionService.broadcastSnapshot(auctionId);
@@ -448,6 +558,8 @@ export class AuctionService {
 
       return newBid;
     }).then(async (newBid) => {
+      // Reset countdown to 15s after successful bid
+      AuctionService.resetTimer(auctionId, lotId, 15);
       // Broadcast updated snapshot to all rooms
       await AuctionService.broadcastSnapshot(auctionId);
       return newBid;
@@ -554,6 +666,7 @@ export class AuctionService {
 
       return purchase;
     }).then(async (purchase) => {
+      AuctionService.stopTimer(auctionId);
       await AuctionService.broadcastSnapshot(auctionId);
       return purchase;
     });
@@ -576,6 +689,7 @@ export class AuctionService {
       data: { version: { increment: 1 } }
     });
 
+    AuctionService.stopTimer(auctionId);
     return await AuctionService.broadcastSnapshot(auctionId);
   }
 
@@ -662,6 +776,7 @@ export class AuctionService {
         data: { version: { increment: 1 } }
       });
     }).then(async () => {
+      AuctionService.resetTimer(auctionId, lotId, 15);
       return await AuctionService.broadcastSnapshot(auctionId);
     });
   }

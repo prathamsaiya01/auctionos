@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
 import { BidSource, LotStatus, AuctionStatus } from '@auctionos/shared';
 import confetti from 'canvas-confetti';
+import { playSoldSound } from '@/lib/audioEffects';
 import {
   Gavel,
   Pause,
@@ -40,7 +41,9 @@ import {
   Eye,
   X,
   Layers,
-  Wallet
+  Wallet,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -72,7 +75,11 @@ export default function AuctioneerConsolePage() {
   const [customBidAmount, setCustomBidAmount] = useState<number | ''>('');
   const [showCustomInput, setShowCustomInput] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [countdown, setCountdown] = useState<number>(30);
+  const [isSubmittingSold, setIsSubmittingSold] = useState(false);
+  const [showSoldConfirmModal, setShowSoldConfirmModal] = useState(false);
+  const [isSoundMuted, setIsSoundMuted] = useState(false);
+  const [countdown, setCountdown] = useState<number>(15);
+  const [isTimeExpired, setIsTimeExpired] = useState<boolean>(false);
   const [showSoldModal, setShowSoldModal] = useState(false);
   const [showUndoModal, setShowUndoModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -130,27 +137,73 @@ export default function AuctioneerConsolePage() {
     }
   }, [snapshot?.teams, selectedTeamId]);
 
-  // Countdown timer local tick
+  // Authoritative countdown timer derived from server deadline (zero drift, handles pause, tab switches & expiry)
   useEffect(() => {
-    if (!snapshot || snapshot.isPaused || snapshot.status !== AuctionStatus.LIVE) return;
+    if (!snapshot || snapshot.status !== AuctionStatus.LIVE || !snapshot.currentLot) {
+      setCountdown(15);
+      setIsTimeExpired(false);
+      return;
+    }
 
-    const interval = setInterval(() => {
-      setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
+    if (snapshot.isPaused) {
+      const remaining = typeof snapshot.countdownRemainingSeconds === 'number' ? snapshot.countdownRemainingSeconds : 0;
+      setCountdown(Math.max(0, remaining));
+      setIsTimeExpired(remaining <= 0);
+      return;
+    }
 
-    return () => clearInterval(interval);
-  }, [snapshot]);
+    const updateTimer = () => {
+      if (!snapshot.countdownEndsAt) {
+        const remaining = typeof snapshot.countdownRemainingSeconds === 'number' ? snapshot.countdownRemainingSeconds : 15;
+        setCountdown(Math.max(0, remaining));
+        setIsTimeExpired(remaining <= 0);
+        return;
+      }
 
-  // Reset countdown when lot or current bid updates
+      const deadline = new Date(snapshot.countdownEndsAt).getTime();
+      const now = Date.now();
+      const diffMs = deadline - now;
+      const diffSec = Math.max(0, Math.ceil(diffMs / 1000));
+
+      setCountdown(diffSec);
+      setIsTimeExpired(diffSec <= 0);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 200);
+
+    const handleVisibility = () => {
+      if (!document.hidden) updateTimer();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [
+    snapshot?.countdownEndsAt,
+    snapshot?.countdownRemainingSeconds,
+    snapshot?.isPaused,
+    snapshot?.status,
+    snapshot?.currentLot?.lotId
+  ]);
+
+  // Auto-dismiss broadcast sold overlay after 4.5s
   useEffect(() => {
-    setCountdown(30);
-  }, [snapshot?.currentLot?.lotId, snapshot?.currentLot?.currentBid]);
+    if (showSoldModal) {
+      const timer = setTimeout(() => {
+        setShowSoldModal(false);
+      }, 4500);
+      return () => clearTimeout(timer);
+    }
+  }, [showSoldModal]);
 
   // Trigger celebratory confetti on SOLD
   const triggerConfetti = () => {
     confetti({
-      particleCount: 140,
-      spread: 80,
+      particleCount: 160,
+      spread: 90,
       origin: { y: 0.6 },
       colors: ['#FF183D', '#126BFF', '#22C55E', '#FFFFFF', '#F59E0B']
     });
@@ -210,37 +263,61 @@ export default function AuctioneerConsolePage() {
     }
   };
 
-  const handleSold = async () => {
+  const handleInitiateSold = () => {
     if (!snapshot?.currentLot) return;
     const buyerTeamId = selectedTeamId || snapshot.currentLot.highestBidderTeamId;
     if (!buyerTeamId && snapshot.currentLot.bidsCount === 0) {
-      alert('Cannot mark SOLD without at least one bid or a selected buyer team.');
+      alert('Please select a franchise paddle team to award the opening base price sale.');
+      return;
+    }
+    setShowSoldConfirmModal(true);
+  };
+
+  const handleExecuteSold = async () => {
+    if (isSubmittingSold || !snapshot?.currentLot) return;
+    const buyerTeamId = selectedTeamId || snapshot.currentLot.highestBidderTeamId;
+    if (!buyerTeamId) {
+      alert('Please select a franchise team to award the sale.');
       return;
     }
 
+    setIsSubmittingSold(true);
     try {
       const winningTeam = snapshot.teams.find((t) => t.teamId === buyerTeamId);
+      const salePrice = snapshot.currentLot.currentBid > 0 ? snapshot.currentLot.currentBid : snapshot.currentLot.basePrice;
+
       await api.post(`/auctions/${auctionId}/sold`, {
         lotId: snapshot.currentLot.lotId,
-        teamId: buyerTeamId
+        teamId: buyerTeamId,
+        finalPrice: salePrice
       });
 
       setLastSoldData({
         playerName: snapshot.currentLot.player.fullName,
-        price: snapshot.currentLot.currentBid || snapshot.currentLot.basePrice,
+        playerPhoto: snapshot.currentLot.player.photoUrl,
+        playerRole: snapshot.currentLot.player.role,
+        price: salePrice,
         teamName: winningTeam?.name || 'Selected Franchise',
         teamColor: winningTeam?.color || '#2563EB',
         teamAbbr: winningTeam?.abbreviation || 'WIN'
       });
 
+      setShowSoldConfirmModal(false);
       setShowSoldModal(true);
+
+      // Play authentic auction gavel strikes and stadium crowd roar
+      playSoldSound(isSoundMuted);
+
+      // Fire celebratory broadcast confetti
       triggerConfetti();
 
       // Refresh squad and player state immediately
       refetchTeams();
       refetchPlayers();
     } catch (err: any) {
-      alert(err.message || 'Failed to mark SOLD');
+      alert(err.message || 'Failed to record SOLD transaction');
+    } finally {
+      setIsSubmittingSold(false);
     }
   };
 
@@ -282,7 +359,20 @@ export default function AuctioneerConsolePage() {
         handleTogglePause();
       } else if (e.key === 's' || e.key === 'S') {
         e.preventDefault();
-        handleSold();
+        if (showSoldConfirmModal) {
+          handleExecuteSold();
+        } else if (snapshot?.currentLot) {
+          handleInitiateSold();
+        }
+      } else if (e.key === 'Enter') {
+        if (showSoldConfirmModal) {
+          e.preventDefault();
+          handleExecuteSold();
+        }
+      } else if (e.key === 'Escape') {
+        if (showSoldConfirmModal) {
+          setShowSoldConfirmModal(false);
+        }
       } else if (e.key === 'u' || e.key === 'U') {
         e.preventDefault();
         setShowUndoModal(true);
@@ -299,20 +389,27 @@ export default function AuctioneerConsolePage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [snapshot, selectedTeamId]);
+  }, [snapshot, selectedTeamId, showSoldConfirmModal, isSubmittingSold]);
 
   const currentLot = snapshot?.currentLot;
   const player = currentLot?.player;
   const teams = snapshot?.teams || [];
   const selectedTeam = teams.find((t) => t.teamId === selectedTeamId) || teams[0];
 
+  const targetBuyerTeamId = selectedTeamId || currentLot?.highestBidderTeamId;
+  const targetBuyerTeam = teams.find((t) => t.teamId === targetBuyerTeamId) || selectedTeam;
+  const targetSalePrice = currentLot?.currentBid && currentLot.currentBid > 0
+    ? currentLot.currentBid
+    : currentLot?.basePrice || 5000;
+
   // Effective bid amount
   const effectiveRaiseAmount = customBidAmount ? Number(customBidAmount) : snapshot?.nextBidAmount || 5000;
 
-  // Countdown timer circle math
+  // Countdown timer circle math (15s basis)
   const timerRadius = 34;
   const timerCircumference = 2 * Math.PI * timerRadius;
-  const timerOffset = timerCircumference - (countdown / 30) * timerCircumference;
+  const timerRatio = Math.min(15, Math.max(0, countdown)) / 15;
+  const timerOffset = timerCircumference - timerRatio * timerCircumference;
 
   // -------------------------------------------------------------
   // Data resolution for VIEW SQUAD modal
@@ -448,10 +545,17 @@ export default function AuctioneerConsolePage() {
               <span className="text-base sm:text-lg font-black italic uppercase tracking-wider text-white">
                 AUCTIONEER CONSOLE
               </span>
-              <div className="bg-gradient-to-r from-[#FF183D] to-[#D40026] text-white text-[11px] font-black tracking-widest px-3 py-1 rounded-full flex items-center gap-1.5 shadow-[0_0_15px_rgba(255,24,61,0.7)] border border-red-300/40">
-                <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                <span>LIVE</span>
-              </div>
+              {snapshot?.isPaused ? (
+                <div className="bg-gradient-to-r from-amber-600 to-amber-700 text-white text-[11px] font-black tracking-widest px-3 py-1 rounded-full flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.8)] border border-amber-300/50 animate-pulse">
+                  <Pause className="w-3 h-3 fill-current" />
+                  <span>PAUSED</span>
+                </div>
+              ) : (
+                <div className="bg-gradient-to-r from-[#FF183D] to-[#D40026] text-white text-[11px] font-black tracking-widest px-3 py-1 rounded-full flex items-center gap-1.5 shadow-[0_0_15px_rgba(255,24,61,0.7)] border border-red-300/40">
+                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                  <span>LIVE</span>
+                </div>
+              )}
             </div>
             <p className="text-[11px] text-slate-300 font-semibold mt-0.5">
               {snapshot?.tournamentName || 'Mumbai Premier League 2027'} – Version v5.2
@@ -463,7 +567,7 @@ export default function AuctioneerConsolePage() {
         {/* 2. CONTROL BAR                                          */}
         {/* ======================================================== */}
         <section className="my-3 bg-[#061533]/90 border border-[#126BFF]/40 rounded-2xl px-4 py-2 shadow-lg backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
-          {/* Left: Mode Buttons & Player Directory Trigger */}
+          {/* Left: Mode Buttons & Dedicated Pause/Resume */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowSettingsModal(true)}
@@ -473,16 +577,27 @@ export default function AuctioneerConsolePage() {
               <span>AUCTION MODE</span>
             </button>
 
+            {/* Prominent Dedicated PAUSE / RESUME Button */}
             <button
               onClick={handleTogglePause}
-              className={`px-4 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-[0_0_15px_rgba(255,24,61,0.5)] border border-red-400/40 transition-all cursor-pointer ${
+              className={`px-4 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer ${
                 snapshot?.isPaused
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-gradient-to-r from-[#FF183D] to-[#D40026] text-white'
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.7)] border border-amber-400/50 animate-pulse'
+                  : 'bg-[#0a1e45] hover:bg-[#0e2759] text-amber-300 hover:text-white border border-amber-500/40'
               }`}
+              title="Spacebar to toggle Pause / Resume"
             >
-              <Radio className="w-3.5 h-3.5 animate-pulse" />
-              <span>{snapshot?.isPaused ? 'PAUSED' : 'LIVE AUCTION'}</span>
+              {snapshot?.isPaused ? (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>RESUME [Space]</span>
+                </>
+              ) : (
+                <>
+                  <Pause className="w-3.5 h-3.5" />
+                  <span>PAUSE [Space]</span>
+                </>
+              )}
             </button>
 
             <button
@@ -494,7 +609,7 @@ export default function AuctioneerConsolePage() {
             </button>
           </div>
 
-          {/* Right: Keyboard Shortcut Pills & Settings */}
+          {/* Right: Keyboard Shortcut Pills, Audio Toggle & Settings */}
           <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
             <div className="hidden lg:flex items-center gap-2">
               <span className="px-2.5 py-1 bg-[#07193b] rounded-lg border border-blue-500/20 text-[11px] font-mono">
@@ -504,12 +619,12 @@ export default function AuctioneerConsolePage() {
                 onClick={handleTogglePause}
                 className="px-2.5 py-1 bg-[#07193b] hover:bg-[#0b2452] rounded-lg border border-blue-500/20 text-[11px] font-mono transition-colors cursor-pointer"
               >
-                [Space] Pause
+                [Space] {snapshot?.isPaused ? 'Resume' : 'Pause'}
               </button>
               <button
-                onClick={handleSold}
+                onClick={handleInitiateSold}
                 disabled={!currentLot}
-                className="px-2.5 py-1 bg-[#07193b] hover:bg-emerald-900/60 rounded-lg border border-blue-500/20 text-[11px] font-mono transition-colors cursor-pointer"
+                className="px-2.5 py-1 bg-[#07193b] hover:bg-red-900/60 rounded-lg border border-red-500/30 text-red-300 hover:text-white text-[11px] font-mono transition-colors cursor-pointer"
               >
                 [S] Sold
               </button>
@@ -526,6 +641,19 @@ export default function AuctioneerConsolePage() {
                 [N] Next
               </button>
             </div>
+
+            {/* Audio Mute/Unmute Toggle Button */}
+            <button
+              onClick={() => setIsSoundMuted(!isSoundMuted)}
+              className={`p-1.5 border rounded-xl transition-all shadow-xs cursor-pointer ${
+                isSoundMuted
+                  ? 'bg-red-950/70 border-red-500/50 text-red-400 hover:text-red-300'
+                  : 'bg-[#0a1e45] hover:bg-[#0e2759] border-blue-500/30 text-slate-300 hover:text-white'
+              }`}
+              title={isSoundMuted ? 'Unmute Auction Sounds' : 'Mute Auction Sounds'}
+            >
+              {isSoundMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+            </button>
 
             <button
               onClick={() => setShowSettingsModal(true)}
@@ -748,18 +876,36 @@ export default function AuctioneerConsolePage() {
                             strokeDasharray={timerCircumference}
                             strokeDashoffset={timerOffset}
                             strokeLinecap="round"
-                            className={`transition-all duration-1000 ${
-                              countdown <= 5 ? 'text-[#FF183D]' : 'text-sky-400'
+                            className={`transition-all duration-300 ${
+                              snapshot.isPaused
+                                ? 'text-amber-400'
+                                : isTimeExpired || countdown <= 5
+                                ? 'text-[#FF183D]'
+                                : 'text-sky-400'
                             }`}
                           />
                         </svg>
                         <div className="absolute flex flex-col items-center">
-                          <span className={`text-xl font-black tabular-nums ${countdown <= 5 ? 'text-[#FF183D] animate-pulse' : 'text-white'}`}>
-                            {countdown}s
-                          </span>
-                          <span className="text-[8px] font-black uppercase tracking-wider text-slate-400">
-                            COUNTDOWN
-                          </span>
+                          {snapshot.isPaused ? (
+                            <>
+                              <span className="text-sm font-black text-amber-400">PAUSED</span>
+                              <span className="text-[8px] font-black uppercase tracking-wider text-amber-300/80">HOLD</span>
+                            </>
+                          ) : isTimeExpired ? (
+                            <>
+                              <span className="text-xs sm:text-sm font-black text-[#FF183D] animate-pulse">EXPIRED</span>
+                              <span className="text-[8px] font-black uppercase tracking-wider text-red-400">TIME OUT</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className={`text-xl font-black tabular-nums ${countdown <= 5 ? 'text-[#FF183D] animate-pulse' : 'text-white'}`}>
+                                {countdown}s
+                              </span>
+                              <span className="text-[8px] font-black uppercase tracking-wider text-slate-400">
+                                COUNTDOWN
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -776,6 +922,19 @@ export default function AuctioneerConsolePage() {
                       </span>
                     </div>
                   </div>
+
+                  {/* Visual Warning Alert when Time Expired */}
+                  {isTimeExpired && currentLot && (
+                    <div className="bg-red-950/80 border border-red-500/60 rounded-xl px-3.5 py-2 flex items-center justify-between text-xs text-red-200 shadow-[0_0_15px_rgba(255,24,61,0.4)] animate-pulse">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                        <span className="font-bold">Countdown Reached 0s — Cricketer remains active for final sale!</span>
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-wider bg-red-600 text-white px-2 py-0.5 rounded-full shadow-xs">
+                        Ready To Sell
+                      </span>
+                    </div>
+                  )}
 
                   {/* Bidding Control Panel */}
                   <div className="bg-[#051330] p-4 rounded-2xl border border-blue-500/30 space-y-3">
@@ -802,25 +961,46 @@ export default function AuctioneerConsolePage() {
                           if (selectedTeamId) handleRegisterPaddleBid(selectedTeamId, effectiveRaiseAmount);
                         }}
                         disabled={!selectedTeamId || isSubmitting || snapshot.isPaused}
-                        className="btn-neon-red flex-1 py-3.5 px-5 rounded-xl font-black text-sm sm:text-base tracking-wide flex items-center justify-center gap-2 text-white active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        className="btn-neon-red flex-1 py-3 px-4 rounded-xl font-black text-xs sm:text-sm tracking-wide flex items-center justify-center gap-2 text-white active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                       >
-                        <Gavel className="w-5 h-5 shrink-0" />
+                        <Gavel className="w-4 h-4 shrink-0" />
                         <span>RAISE BID TO ₹{effectiveRaiseAmount.toLocaleString()} &gt;&gt;</span>
                       </button>
 
                       <button
                         onClick={() => setShowCustomInput(!showCustomInput)}
-                        className={`px-4 py-3.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                        className={`px-3.5 py-3 rounded-xl font-bold text-xs border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
                           showCustomInput || customBidAmount
                             ? 'bg-[#126BFF] border-sky-400 text-white shadow-[0_0_15px_rgba(18,107,255,0.6)]'
                             : 'bg-[#081d45] border-blue-500/30 text-slate-200 hover:text-white'
                         }`}
                         title="Enter Custom Bid Amount"
                       >
-                        <Pencil className="w-4 h-4" />
+                        <Pencil className="w-3.5 h-3.5" />
                         <span>CUSTOM ₹</span>
                       </button>
                     </div>
+
+                    {/* DIRECT SOLD BUTTON — HIGH PRIORITY (Accessible at all times, including when time expired) */}
+                    <button
+                      type="button"
+                      onClick={handleInitiateSold}
+                      disabled={!currentLot || isSubmittingSold || (snapshot.isPaused && !isTimeExpired)}
+                      className={`w-full py-3.5 px-4 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all shadow-xl cursor-pointer ${
+                        !currentLot
+                          ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                          : 'bg-gradient-to-r from-[#D40026] via-[#FF183D] to-[#D40026] hover:brightness-110 active:scale-[0.98] text-white border border-red-400/60 shadow-[0_0_25px_rgba(255,24,61,0.65)] hover:shadow-[0_0_35px_rgba(255,24,61,0.9)]'
+                      }`}
+                      title={isTimeExpired ? 'Timer expired — sell player now' : 'Mark current cricketer as SOLD'}
+                    >
+                      <Trophy className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-300 fill-yellow-300/30 shrink-0" />
+                      <span className="drop-shadow-sm">MARK AS SOLD [S]</span>
+                      {targetBuyerTeam && (
+                        <span className="text-[11px] font-bold bg-black/35 px-2.5 py-0.5 rounded-full border border-white/20 normal-case">
+                          → {targetBuyerTeam.name} (₹{targetSalePrice.toLocaleString()})
+                        </span>
+                      )}
+                    </button>
 
                     {showCustomInput && (
                       <div className="flex items-center gap-2 p-2 bg-[#081d45] rounded-xl border border-blue-500/40 animate-fade-in">
@@ -1516,53 +1696,197 @@ export default function AuctioneerConsolePage() {
       )}
 
       {/* ======================================================== */}
-      {/* 8. CELEBRATORY SOLD MODAL & UNDO CONFIRMATION            */}
+      {/* 8. MODAL: SOLD CONFIRMATION (Prevents Accidental Sales)  */}
+      {/* ======================================================== */}
+      <Modal
+        isOpen={showSoldConfirmModal}
+        onClose={() => setShowSoldConfirmModal(false)}
+        maxWidth="md"
+        theme="dark"
+        title={
+          <div className="flex items-center gap-2.5 text-white">
+            <div className="w-8 h-8 rounded-xl bg-red-600/30 border border-red-500 flex items-center justify-center text-red-400">
+              <Gavel className="w-4 h-4" />
+            </div>
+            <span className="text-lg font-black tracking-tight">CONFIRM PLAYER SALE</span>
+          </div>
+        }
+        subtitle="Verify winning franchise and sale amount before recording the permanent hammer drop"
+      >
+        {currentLot && (
+          <div className="space-y-4 pt-1">
+            {/* Cricketer & Franchise Summary Box */}
+            <div className="bg-[#071d47] p-4 rounded-2xl border border-blue-500/40 space-y-3">
+              <div className="flex items-center justify-between pb-2.5 border-b border-blue-500/20">
+                <div className="flex items-center gap-3">
+                  {player?.photoUrl ? (
+                    <img
+                      src={player.photoUrl}
+                      alt={player.fullName}
+                      className="w-12 h-12 rounded-xl object-cover border border-[#126BFF]/50"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-xl bg-[#092250] text-sky-400 font-black text-lg flex items-center justify-center border border-blue-500/30">
+                      {player?.fullName.charAt(0)}
+                    </div>
+                  )}
+                  <div>
+                    <h4 className="font-black text-base text-white">{player?.fullName}</h4>
+                    <span className="text-xs text-sky-300 font-bold uppercase">
+                      {player?.role.replace(/_/g, ' ')} • {player?.category || 'Marquee'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-[10px] uppercase font-black text-slate-400 block">HAMMER PRICE</span>
+                  <span className="text-2xl font-black text-emerald-400 tabular-nums">
+                    ₹{(currentLot.currentBid || currentLot.basePrice).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs pt-1">
+                <span className="text-slate-300 font-medium">Acquiring Franchise:</span>
+                {targetBuyerTeam ? (
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: targetBuyerTeam.color || '#2563EB' }}
+                    />
+                    <span className="font-black text-white text-sm">{targetBuyerTeam.name}</span>
+                  </div>
+                ) : (
+                  <span className="text-amber-400 font-bold">No franchise selected</span>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between text-xs text-slate-300">
+                <span>Purse After Deduction:</span>
+                <span className="font-mono font-bold text-white">
+                  ₹{Math.max(0, (targetBuyerTeam?.remainingPurse || 0) - (currentLot.currentBid || currentLot.basePrice)).toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#030d22] border border-blue-500/20 text-xs text-slate-300 flex items-start gap-2">
+              <Sparkles className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+              <p className="leading-relaxed">
+                {currentLot.bidsCount > 0
+                  ? `Selling to highest competitive bidder at ₹${(currentLot.currentBid || currentLot.basePrice).toLocaleString()}.`
+                  : `No competitive bids placed. Selling to selected team ${targetBuyerTeam?.name} at opening base price of ₹${currentLot.basePrice.toLocaleString()}.`}
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 pt-2">
+              <Button
+                variant="outline"
+                size="md"
+                className="flex-1 bg-slate-800 text-white border-slate-700 hover:bg-slate-700"
+                onClick={() => setShowSoldConfirmModal(false)}
+                disabled={isSubmittingSold}
+              >
+                Cancel [Esc]
+              </Button>
+
+              <button
+                onClick={handleExecuteSold}
+                disabled={isSubmittingSold || !targetBuyerTeam}
+                className="flex-1 py-2.5 px-4 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider text-white bg-gradient-to-r from-[#D40026] via-[#FF183D] to-[#D40026] shadow-[0_0_20px_rgba(255,24,61,0.6)] hover:brightness-110 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmittingSold ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>RECORDING SALE...</span>
+                  </>
+                ) : (
+                  <>
+                    <Gavel className="w-4 h-4" />
+                    <span>CONFIRM SOLD [S]</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ======================================================== */}
+      {/* 9. CELEBRATORY BROADCAST SOLD OVERLAY                    */}
       {/* ======================================================== */}
       <Modal
         isOpen={showSoldModal}
         onClose={() => setShowSoldModal(false)}
         maxWidth="md"
-        showCloseButton={false}
+        showCloseButton={true}
         theme="dark"
       >
         {lastSoldData && (
-          <div className="text-center p-4">
-            <div className="w-20 h-20 mx-auto rounded-3xl bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center text-emerald-400 shadow-[0_0_30px_rgba(34,197,94,0.5)] mb-4">
-              <Trophy className="w-10 h-10" />
+          <div className="text-center p-2 relative overflow-hidden">
+            {/* Stadium Energy Aura */}
+            <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-tr from-amber-500/20 via-red-500/20 to-emerald-500/20 border-2 border-yellow-400/80 flex items-center justify-center text-yellow-300 shadow-[0_0_40px_rgba(234,179,8,0.5)] mb-3 animate-scale-up">
+              <Trophy className="w-10 h-10 text-yellow-300 fill-yellow-400/30" />
             </div>
 
-            <span className="text-xs font-black uppercase tracking-widest text-emerald-400 block mb-1">
+            <div className="inline-block px-4 py-1 rounded-full bg-gradient-to-r from-[#FF183D] to-[#D40026] text-white text-[11px] font-black uppercase tracking-[0.25em] shadow-[0_0_20px_rgba(255,24,61,0.7)] border border-red-300/40 mb-2">
               🎉 PLAYER OFFICIALLY SOLD!
-            </span>
-            <h3 className="text-2xl md:text-3xl font-black text-white tracking-tight">
+            </div>
+
+            <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight drop-shadow-md">
               {lastSoldData.playerName}
             </h3>
 
-            <div className="my-5 p-4 bg-[#071d47] rounded-2xl border border-blue-500/30 flex items-center justify-between">
-              <div className="text-left">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Acquired By</span>
-                <span className="text-base font-black text-white">{lastSoldData.teamName}</span>
+            <div className="my-4 p-4 bg-[#071d47] rounded-2xl border-2 border-[#126BFF]/50 shadow-[0_0_30px_rgba(18,107,255,0.25)] flex items-center justify-between">
+              <div className="text-left flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-xs shadow-md border border-white/20 shrink-0"
+                  style={{ backgroundColor: lastSoldData.teamColor || '#2563EB' }}
+                >
+                  {lastSoldData.teamAbbr}
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                    ACQUIRED BY
+                  </span>
+                  <span className="text-sm sm:text-base font-black text-white">{lastSoldData.teamName}</span>
+                </div>
               </div>
+
               <div className="text-right">
-                <span className="text-[10px] uppercase font-bold text-slate-400 block">Final Sale Price</span>
-                <span className="text-xl font-black text-emerald-400 tabular-nums">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                  FINAL PRICE
+                </span>
+                <span className="text-xl sm:text-2xl font-black text-emerald-400 tabular-nums drop-shadow-[0_0_10px_rgba(52,211,153,0.5)]">
                   ₹{Number(lastSoldData.price).toLocaleString()}
                 </span>
               </div>
             </div>
 
-            <p className="text-xs text-slate-400 mb-6">
-              Automated congratulations message dispatched via WhatsApp Cloud API &amp; email outbox.
+            <p className="text-[11px] text-slate-400 mb-4">
+              Automated notifications queued for tournament ledger and franchise records.
             </p>
 
-            <Button
-              variant="primary"
-              size="md"
-              className="w-full"
-              onClick={() => setShowSoldModal(false)}
-            >
-              Continue Auction
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="md"
+                className="flex-1 bg-slate-800 text-white border-slate-700 hover:bg-slate-700"
+                onClick={() => setShowSoldModal(false)}
+              >
+                Close
+              </Button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSoldModal(false);
+                  handleNextPlayer();
+                }}
+                className="flex-1 py-2.5 px-4 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wider text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-[0_0_20px_rgba(16,185,129,0.5)] active:scale-[0.98] transition-all cursor-pointer"
+              >
+                Next Player [N] &gt;&gt;
+              </button>
+            </div>
           </div>
         )}
       </Modal>

@@ -33,27 +33,61 @@ export default function PublicAuctionDisplayPage() {
   }, [auctionId, initSocket]);
 
   useEffect(() => {
-    if (!snapshot || snapshot.isPaused || snapshot.status !== AuctionStatus.LIVE) return;
+    if (!snapshot || snapshot.status !== AuctionStatus.LIVE || !snapshot.currentLot) {
+      setCountdown(15);
+      return;
+    }
 
-    const interval = setInterval(() => {
-      setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
+    if (snapshot.isPaused) {
+      const remaining = typeof snapshot.countdownRemainingSeconds === 'number' ? snapshot.countdownRemainingSeconds : 0;
+      setCountdown(Math.max(0, remaining));
+      return;
+    }
 
-    return () => clearInterval(interval);
-  }, [snapshot]);
+    const updateTimer = () => {
+      if (!snapshot.countdownEndsAt) {
+        const remaining = typeof snapshot.countdownRemainingSeconds === 'number' ? snapshot.countdownRemainingSeconds : 15;
+        setCountdown(Math.max(0, remaining));
+        return;
+      }
 
-  useEffect(() => {
-    setCountdown(30);
-  }, [snapshot?.currentLot?.lotId, snapshot?.currentLot?.currentBid]);
+      const deadline = new Date(snapshot.countdownEndsAt).getTime();
+      const now = Date.now();
+      const diffMs = deadline - now;
+      const diffSec = Math.max(0, Math.ceil(diffMs / 1000));
+
+      setCountdown(diffSec);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 200);
+
+    const handleVisibility = () => {
+      if (!document.hidden) updateTimer();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [
+    snapshot?.countdownEndsAt,
+    snapshot?.countdownRemainingSeconds,
+    snapshot?.isPaused,
+    snapshot?.status,
+    snapshot?.currentLot?.lotId
+  ]);
 
   const currentLot = snapshot?.currentLot;
   const player = currentLot?.player;
   const teams = snapshot?.teams || [];
 
-  // Countdown percentage for circular SVG dial
+  // Countdown percentage for circular SVG dial (15s basis)
   const countdownRadius = 38;
   const circumference = 2 * Math.PI * countdownRadius;
-  const countdownOffset = circumference - (countdown / 30) * circumference;
+  const countdownRatio = Math.min(15, Math.max(0, countdown)) / 15;
+  const countdownOffset = circumference - countdownRatio * circumference;
 
   return (
     <div className="min-h-screen bg-auction-bg text-auction-text flex flex-col justify-between p-6 lg:p-8 select-none overflow-hidden relative font-sans">

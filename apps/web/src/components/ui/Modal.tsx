@@ -13,6 +13,7 @@ export interface ModalProps {
   children: React.ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl';
   showCloseButton?: boolean;
+  theme?: 'light' | 'dark';
 }
 
 export function Modal({
@@ -23,6 +24,7 @@ export function Modal({
   children,
   maxWidth = 'md',
   showCloseButton = true,
+  theme = 'light',
 }: ModalProps) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -51,8 +53,10 @@ export function Modal({
     '4xl': 'max-w-4xl',
   };
 
+  const isDark = theme === 'dark';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
       {/* Click outside backdrop */}
       <div className="fixed inset-0" onClick={onClose} aria-hidden="true" />
 
@@ -62,22 +66,58 @@ export function Modal({
         aria-modal="true"
         className={twMerge(
           clsx(
-            'relative bg-white rounded-3xl shadow-2xl border border-admin-border w-full p-6 md:p-8 z-10 animate-scale-up overflow-hidden',
+            'relative rounded-3xl shadow-2xl w-full p-6 md:p-8 z-10 animate-scale-up overflow-hidden max-h-[90vh] flex flex-col',
+            isDark
+              ? 'bg-[#040f26]/98 text-white border-2 border-[#126BFF]/60 shadow-[0_0_40px_rgba(18,107,255,0.35)]'
+              : 'bg-white rounded-3xl shadow-2xl border border-admin-border text-admin-text',
             maxWidths[maxWidth]
           )
         )}
       >
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="flex items-start justify-between pb-4 mb-4 border-b border-admin-border/60">
+          <div
+            className={twMerge(
+              clsx(
+                'flex items-start justify-between pb-4 mb-4 shrink-0',
+                isDark ? 'border-b border-[#126BFF]/30' : 'border-b border-admin-border/60'
+              )
+            )}
+          >
             <div>
-              {title && <h3 className="text-lg md:text-xl font-black text-admin-text tracking-tight">{title}</h3>}
-              {subtitle && <p className="text-xs text-admin-muted mt-1 leading-relaxed">{subtitle}</p>}
+              {title && (
+                <h3
+                  className={twMerge(
+                    clsx(
+                      'text-lg md:text-xl font-black tracking-tight',
+                      isDark ? 'text-white' : 'text-admin-text'
+                    )
+                  )}
+                >
+                  {title}
+                </h3>
+              )}
+              {subtitle && (
+                <p
+                  className={twMerge(
+                    clsx('text-xs mt-1 leading-relaxed', isDark ? 'text-slate-300' : 'text-admin-muted')
+                  )}
+                >
+                  {subtitle}
+                </p>
+              )}
             </div>
             {showCloseButton && (
               <button
                 onClick={onClose}
-                className="p-2 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-100 transition-colors"
+                className={twMerge(
+                  clsx(
+                    'p-2 rounded-xl transition-colors shrink-0',
+                    isDark
+                      ? 'text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent hover:border-blue-500/40'
+                      : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100'
+                  )
+                )}
                 aria-label="Close modal"
               >
                 <X className="w-4 h-4" />
@@ -87,7 +127,7 @@ export function Modal({
         )}
 
         {/* Content */}
-        <div>{children}</div>
+        <div className="overflow-y-auto flex-1 pr-1">{children}</div>
       </div>
     </div>
   );

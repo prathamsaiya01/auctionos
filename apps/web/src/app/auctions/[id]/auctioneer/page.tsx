@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { useAuctionStore } from '@/stores/auctionStore';
 import { useAuthStore } from '@/stores/authStore';
 import { api } from '@/lib/api';
@@ -31,7 +32,15 @@ import {
   Crown,
   Users,
   Check,
-  ChevronLeft
+  ChevronLeft,
+  Search,
+  Filter,
+  DollarSign,
+  ArrowUpDown,
+  Eye,
+  X,
+  Layers,
+  Wallet
 } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -70,6 +79,18 @@ export default function AuctioneerConsolePage() {
   const [undoReason, setUndoReason] = useState('Auctioneer correction');
   const [lastSoldData, setLastSoldData] = useState<any>(null);
 
+  // VIEW SQUAD Modal State
+  const [viewSquadTeam, setViewSquadTeam] = useState<any | null>(null);
+  const [squadRoleFilter, setSquadRoleFilter] = useState<string>('ALL');
+
+  // VIEW PLAYERS Modal State
+  const [showPlayersModal, setShowPlayersModal] = useState<boolean>(false);
+  const [playerSearch, setPlayerSearch] = useState<string>('');
+  const [playerRoleFilter, setPlayerRoleFilter] = useState<string>('ALL');
+  const [playerCategoryFilter, setPlayerCategoryFilter] = useState<string>('ALL');
+  const [playerStatusFilter, setPlayerStatusFilter] = useState<'ALL' | 'AVAILABLE' | 'SOLD'>('ALL');
+  const [playerSortBy, setPlayerSortBy] = useState<'NAME' | 'PRICE_HIGH' | 'PRICE_LOW'>('NAME');
+
   // Initialize Socket connection
   useEffect(() => {
     if (auctionId) {
@@ -77,10 +98,33 @@ export default function AuctioneerConsolePage() {
     }
   }, [auctionId, initSocket]);
 
+  // Query tournament teams with purchases for accurate, instant squad inspection
+  const { data: tournamentTeamsData, refetch: refetchTeams } = useQuery({
+    queryKey: ['tournament-teams', snapshot?.tournamentId],
+    queryFn: async () => {
+      if (!snapshot?.tournamentId) return [];
+      const res: any = await api.get(`/teams/tournament/${snapshot.tournamentId}`);
+      return res.data || [];
+    },
+    enabled: !!snapshot?.tournamentId,
+    refetchInterval: 3000
+  });
+
+  // Query all tournament players for the Player Directory modal
+  const { data: tournamentPlayersData, refetch: refetchPlayers } = useQuery({
+    queryKey: ['tournament-players', snapshot?.tournamentId],
+    queryFn: async () => {
+      if (!snapshot?.tournamentId) return [];
+      const res: any = await api.get(`/players/tournament/${snapshot.tournamentId}`);
+      return res.data || [];
+    },
+    enabled: !!snapshot?.tournamentId,
+    refetchInterval: 3000
+  });
+
   // Set default selected team if none is selected
   useEffect(() => {
     if (snapshot?.teams && snapshot.teams.length > 0 && !selectedTeamId) {
-      // Default select team 4 (Royal Blasters) as shown in reference mockup, or first team
       const rblTeam = snapshot.teams.find((t) => t.abbreviation === 'RBL');
       setSelectedTeamId(rblTeam ? rblTeam.teamId : snapshot.teams[0].teamId);
     }
@@ -116,6 +160,8 @@ export default function AuctioneerConsolePage() {
   const handleStart = async () => {
     try {
       await api.post(`/auctions/${auctionId}/start`);
+      refetchTeams();
+      refetchPlayers();
     } catch (err: any) {
       alert(err.message || 'Error starting auction');
     }
@@ -137,6 +183,8 @@ export default function AuctioneerConsolePage() {
   const handleNextPlayer = async () => {
     try {
       await api.post(`/auctions/${auctionId}/next-player`);
+      refetchTeams();
+      refetchPlayers();
     } catch (err: any) {
       alert(err.message || 'Error moving to next player');
     }
@@ -172,7 +220,7 @@ export default function AuctioneerConsolePage() {
 
     try {
       const winningTeam = snapshot.teams.find((t) => t.teamId === buyerTeamId);
-      const res: any = await api.post(`/auctions/${auctionId}/sold`, {
+      await api.post(`/auctions/${auctionId}/sold`, {
         lotId: snapshot.currentLot.lotId,
         teamId: buyerTeamId
       });
@@ -187,6 +235,10 @@ export default function AuctioneerConsolePage() {
 
       setShowSoldModal(true);
       triggerConfetti();
+
+      // Refresh squad and player state immediately
+      refetchTeams();
+      refetchPlayers();
     } catch (err: any) {
       alert(err.message || 'Failed to mark SOLD');
     }
@@ -198,6 +250,8 @@ export default function AuctioneerConsolePage() {
       await api.post(`/auctions/${auctionId}/unsold`, {
         lotId: snapshot.currentLot.lotId
       });
+      refetchTeams();
+      refetchPlayers();
     } catch (err: any) {
       alert(err.message || 'Failed to mark UNSOLD');
     }
@@ -211,6 +265,8 @@ export default function AuctioneerConsolePage() {
         reason: undoReason
       });
       setShowUndoModal(false);
+      refetchTeams();
+      refetchPlayers();
     } catch (err: any) {
       alert(err.message || 'Failed to reverse action');
     }
@@ -258,6 +314,65 @@ export default function AuctioneerConsolePage() {
   const timerCircumference = 2 * Math.PI * timerRadius;
   const timerOffset = timerCircumference - (countdown / 30) * timerCircumference;
 
+  // -------------------------------------------------------------
+  // Data resolution for VIEW SQUAD modal
+  // -------------------------------------------------------------
+  const detailedSquadTeam = useMemo(() => {
+    if (!viewSquadTeam) return null;
+    const fullTeam = (tournamentTeamsData || []).find((t: any) => t.id === viewSquadTeam.teamId || t.name === viewSquadTeam.name);
+    return fullTeam || viewSquadTeam;
+  }, [viewSquadTeam, tournamentTeamsData]);
+
+  const squadPurchases = useMemo(() => {
+    if (!detailedSquadTeam?.purchases) return [];
+    if (squadRoleFilter === 'ALL') return detailedSquadTeam.purchases;
+    return detailedSquadTeam.purchases.filter((p: any) => p.player?.role === squadRoleFilter);
+  }, [detailedSquadTeam, squadRoleFilter]);
+
+  const squadRoleCounts = useMemo(() => {
+    const list = detailedSquadTeam?.purchases || [];
+    return {
+      all: list.length,
+      batsman: list.filter((p: any) => p.player?.role === 'BATSMAN').length,
+      bowler: list.filter((p: any) => p.player?.role === 'BOWLER').length,
+      allRounder: list.filter((p: any) => p.player?.role === 'ALL_ROUNDER').length,
+      wicketKeeper: list.filter((p: any) => p.player?.role === 'WICKET_KEEPER').length,
+    };
+  }, [detailedSquadTeam]);
+
+  // -------------------------------------------------------------
+  // Data resolution for VIEW PLAYERS directory modal
+  // -------------------------------------------------------------
+  const allPlayersList: any[] = tournamentPlayersData || [];
+
+  const filteredPlayers = useMemo(() => {
+    return allPlayersList
+      .filter((p) => {
+        // Search filter
+        if (playerSearch) {
+          const q = playerSearch.toLowerCase();
+          const matchName = p.fullName?.toLowerCase().includes(q);
+          const matchCity = p.city?.toLowerCase().includes(q);
+          if (!matchName && !matchCity) return false;
+        }
+        // Role filter
+        if (playerRoleFilter !== 'ALL' && p.role !== playerRoleFilter) return false;
+        // Category filter
+        if (playerCategoryFilter !== 'ALL' && p.playerCategory !== playerCategoryFilter) return false;
+        // Status filter
+        const isSold = p.purchases && p.purchases.length > 0;
+        if (playerStatusFilter === 'AVAILABLE' && isSold) return false;
+        if (playerStatusFilter === 'SOLD' && !isSold) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (playerSortBy === 'NAME') return a.fullName.localeCompare(b.fullName);
+        if (playerSortBy === 'PRICE_HIGH') return Number(b.basePrice) - Number(a.basePrice);
+        if (playerSortBy === 'PRICE_LOW') return Number(a.basePrice) - Number(b.basePrice);
+        return 0;
+      });
+  }, [allPlayersList, playerSearch, playerRoleFilter, playerCategoryFilter, playerStatusFilter, playerSortBy]);
+
   return (
     <div className="min-h-screen bg-[#020D25] text-white flex flex-col justify-between select-none overflow-x-hidden relative font-sans stadium-bg pb-6">
       {/* Stadium Ambient Floodlights */}
@@ -265,7 +380,6 @@ export default function AuctioneerConsolePage() {
         <div className="absolute top-0 left-0 w-full h-[600px] floodlight-left opacity-90" />
         <div className="absolute top-0 right-0 w-full h-[600px] floodlight-right opacity-90" />
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[900px] h-[500px] stadium-center-flare opacity-80" />
-        {/* Subtle field turf line at very bottom */}
         <div className="absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-emerald-950/40 via-emerald-900/10 to-transparent" />
       </div>
 
@@ -301,7 +415,6 @@ export default function AuctioneerConsolePage() {
 
           {/* CENTER: GOKUL CUP SEASON 2 TOURNAMENT LOGO */}
           <div className="flex items-center justify-center gap-3 text-center my-1">
-            {/* Batsman Swinging Silhouette Graphic */}
             <div className="hidden sm:block relative w-12 h-14">
               <svg viewBox="0 0 100 120" className="w-full h-full text-sky-400 drop-shadow-[0_0_15px_rgba(56,189,248,0.8)] fill-current">
                 <path d="M50 5 C55 5, 58 8, 58 13 C58 18, 55 22, 50 22 C45 22, 42 18, 42 13 C42 8, 45 5, 50 5 Z M35 30 L60 25 L85 10 L89 16 L65 34 L62 48 L80 85 L70 90 L52 55 L42 95 L30 95 L40 45 L32 40 Z" />
@@ -314,13 +427,11 @@ export default function AuctioneerConsolePage() {
                 <h1 className="text-3xl sm:text-4xl md:text-5xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-100 to-slate-300 drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
                   GOKUL CUP
                 </h1>
-                {/* Silver Trophy Cup */}
                 <div className="relative text-yellow-300 drop-shadow-[0_0_10px_rgba(234,179,8,0.6)]">
                   <Trophy className="w-7 h-7 sm:w-9 sm:h-9" />
                 </div>
               </div>
 
-              {/* Red Season 2 Brush Banner */}
               <div className="relative -mt-1 px-6 py-0.5 bg-gradient-to-r from-transparent via-[#FF183D] to-transparent text-white font-black italic tracking-wider text-xs sm:text-sm uppercase drop-shadow-md">
                 <span className="drop-shadow-[0_0_8px_rgba(255,255,255,0.6)]">SEASON 2</span>
               </div>
@@ -352,11 +463,11 @@ export default function AuctioneerConsolePage() {
         {/* 2. CONTROL BAR                                          */}
         {/* ======================================================== */}
         <section className="my-3 bg-[#061533]/90 border border-[#126BFF]/40 rounded-2xl px-4 py-2 shadow-lg backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
-          {/* Left: Mode Buttons */}
+          {/* Left: Mode Buttons & Player Directory Trigger */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowSettingsModal(true)}
-              className="px-3.5 py-1.5 bg-[#0a1e45] hover:bg-[#0e2759] text-slate-200 border border-blue-500/30 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all"
+              className="px-3.5 py-1.5 bg-[#0a1e45] hover:bg-[#0e2759] text-slate-200 border border-blue-500/30 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
             >
               <Gavel className="w-3.5 h-3.5 text-sky-400" />
               <span>AUCTION MODE</span>
@@ -364,7 +475,7 @@ export default function AuctioneerConsolePage() {
 
             <button
               onClick={handleTogglePause}
-              className={`px-4 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-[0_0_15px_rgba(255,24,61,0.5)] border border-red-400/40 transition-all ${
+              className={`px-4 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-[0_0_15px_rgba(255,24,61,0.5)] border border-red-400/40 transition-all cursor-pointer ${
                 snapshot?.isPaused
                   ? 'bg-amber-600 text-white'
                   : 'bg-gradient-to-r from-[#FF183D] to-[#D40026] text-white'
@@ -375,11 +486,11 @@ export default function AuctioneerConsolePage() {
             </button>
 
             <button
-              onClick={() => setShowSettingsModal(true)}
-              className="px-3.5 py-1.5 bg-[#0a1e45] hover:bg-[#0e2759] text-slate-200 border border-blue-500/30 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all"
+              onClick={() => setShowPlayersModal(true)}
+              className="px-3.5 py-1.5 bg-[#0a1e45] hover:bg-[#126BFF]/30 text-sky-300 hover:text-white border border-[#126BFF]/50 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
             >
-              <Tv className="w-3.5 h-3.5 text-purple-400" />
-              <span>HYBRID MODE</span>
+              <Users className="w-3.5 h-3.5 text-sky-400" />
+              <span>ALL PLAYERS ({allPlayersList.length})</span>
             </button>
           </div>
 
@@ -391,26 +502,26 @@ export default function AuctioneerConsolePage() {
               </span>
               <button
                 onClick={handleTogglePause}
-                className="px-2.5 py-1 bg-[#07193b] hover:bg-[#0b2452] rounded-lg border border-blue-500/20 text-[11px] font-mono transition-colors"
+                className="px-2.5 py-1 bg-[#07193b] hover:bg-[#0b2452] rounded-lg border border-blue-500/20 text-[11px] font-mono transition-colors cursor-pointer"
               >
                 [Space] Pause
               </button>
               <button
                 onClick={handleSold}
                 disabled={!currentLot}
-                className="px-2.5 py-1 bg-[#07193b] hover:bg-emerald-900/60 rounded-lg border border-blue-500/20 text-[11px] font-mono transition-colors"
+                className="px-2.5 py-1 bg-[#07193b] hover:bg-emerald-900/60 rounded-lg border border-blue-500/20 text-[11px] font-mono transition-colors cursor-pointer"
               >
                 [S] Sold
               </button>
               <button
                 onClick={() => setShowUndoModal(true)}
-                className="px-2.5 py-1 bg-[#07193b] hover:bg-[#0b2452] rounded-lg border border-blue-500/20 text-[11px] font-mono transition-colors"
+                className="px-2.5 py-1 bg-[#07193b] hover:bg-[#0b2452] rounded-lg border border-blue-500/20 text-[11px] font-mono transition-colors cursor-pointer"
               >
                 [U] Undo
               </button>
               <button
                 onClick={handleNextPlayer}
-                className="px-2.5 py-1 bg-[#07193b] hover:bg-sky-900/60 rounded-lg border border-blue-500/20 text-[11px] font-mono transition-colors"
+                className="px-2.5 py-1 bg-[#07193b] hover:bg-sky-900/60 rounded-lg border border-blue-500/20 text-[11px] font-mono transition-colors cursor-pointer"
               >
                 [N] Next
               </button>
@@ -418,7 +529,7 @@ export default function AuctioneerConsolePage() {
 
             <button
               onClick={() => setShowSettingsModal(true)}
-              className="p-1.5 bg-[#0a1e45] hover:bg-[#0e2759] border border-blue-500/30 rounded-xl text-slate-300 hover:text-white transition-all shadow-xs"
+              className="p-1.5 bg-[#0a1e45] hover:bg-[#0e2759] border border-blue-500/30 rounded-xl text-slate-300 hover:text-white transition-all shadow-xs cursor-pointer"
               title="Settings"
             >
               <Settings className="w-4 h-4" />
@@ -439,7 +550,6 @@ export default function AuctioneerConsolePage() {
                 <div className="space-y-3.5">
                   {/* Player Image with LOT Ribbon & Energy Streaks */}
                   <div className="relative aspect-[4/3] rounded-2xl overflow-hidden bg-gradient-to-tr from-[#020b1f] to-[#0a2352] border border-[#126BFF]/50 shadow-inner">
-                    {/* Background Red Speed Streaks */}
                     <div className="absolute inset-0 pointer-events-none opacity-40">
                       <div className="w-full h-full bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-red-600/30 via-blue-600/10 to-transparent" />
                       <div className="absolute top-0 -left-10 w-24 h-full bg-gradient-to-r from-red-600/40 to-transparent transform -skew-x-25" />
@@ -565,7 +675,6 @@ export default function AuctioneerConsolePage() {
             {/* MIDDLE COLUMN: LIVE BIDDING ARENA (5.5 cols / ~43%)   */}
             {/* ---------------------------------------------------- */}
             <div className="lg:col-span-5 xl:col-span-5 bg-[#06183e]/90 border border-[#126BFF]/50 rounded-2xl p-5 flex flex-col justify-between shadow-2xl relative overflow-hidden">
-              {/* Subtle Stadium Center Flare */}
               <div className="absolute top-0 left-1/2 -translate-x-1/2 w-80 h-48 bg-gradient-to-b from-[#126BFF]/20 to-transparent blur-2xl pointer-events-none" />
 
               {currentLot ? (
@@ -576,9 +685,7 @@ export default function AuctioneerConsolePage() {
                       CURRENT HIGHEST BID
                     </div>
 
-                    {/* Huge Metallic Amount flanked by SVG Laurel Wreaths */}
                     <div className="flex items-center justify-center gap-3 my-1">
-                      {/* Left Laurel Branch SVG */}
                       <svg viewBox="0 0 40 80" className="w-7 sm:w-9 h-14 sm:h-18 text-slate-300 drop-shadow-[0_0_8px_rgba(255,255,255,0.4)] fill-current shrink-0">
                         <path d="M35,75 C25,60 15,40 20,10 C22,7 26,9 24,12 C18,30 22,50 30,65 Z" />
                         <path d="M22,20 C10,22 5,15 10,8 C15,10 18,15 22,20 Z" />
@@ -591,7 +698,6 @@ export default function AuctioneerConsolePage() {
                         ₹{(currentLot.currentBid || currentLot.basePrice).toLocaleString()}
                       </div>
 
-                      {/* Right Laurel Branch SVG */}
                       <svg viewBox="0 0 40 80" className="w-7 sm:w-9 h-14 sm:h-18 text-slate-300 drop-shadow-[0_0_8px_rgba(255,255,255,0.4)] fill-current transform scale-x-[-1] shrink-0">
                         <path d="M35,75 C25,60 15,40 20,10 C22,7 26,9 24,12 C18,30 22,50 30,65 Z" />
                         <path d="M22,20 C10,22 5,15 10,8 C15,10 18,15 22,20 Z" />
@@ -601,7 +707,6 @@ export default function AuctioneerConsolePage() {
                       </svg>
                     </div>
 
-                    {/* Subtitle */}
                     <div className="text-xs font-semibold text-slate-300">
                       {currentLot.highestBidderTeamName ? (
                         <div className="inline-flex items-center gap-2 px-3.5 py-1 bg-[#092250] rounded-full border border-blue-400/40">
@@ -621,7 +726,6 @@ export default function AuctioneerConsolePage() {
 
                   {/* CENTER: Countdown Timer & Next Minimum Bid */}
                   <div className="grid grid-cols-2 gap-4 items-center bg-[#051330]/80 p-3.5 rounded-2xl border border-blue-500/20">
-                    {/* Left: Animated Circular Countdown Timer */}
                     <div className="flex items-center justify-center gap-3">
                       <div className="relative w-18 h-18 flex items-center justify-center">
                         <svg className="w-full h-full transform -rotate-90">
@@ -660,7 +764,6 @@ export default function AuctioneerConsolePage() {
                       </div>
                     </div>
 
-                    {/* Right: Next Minimum Bid */}
                     <div className="text-left border-l border-blue-500/20 pl-4">
                       <span className="text-[10px] font-black uppercase tracking-wider text-slate-300 block">
                         NEXT MINIMUM BID
@@ -674,7 +777,7 @@ export default function AuctioneerConsolePage() {
                     </div>
                   </div>
 
-                  {/* Bidding Control Panel: Selected Paddle Team & Giant Raise Bid Button */}
+                  {/* Bidding Control Panel */}
                   <div className="bg-[#051330] p-4 rounded-2xl border border-blue-500/30 space-y-3">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-[10px] font-black uppercase tracking-wider text-slate-300">
@@ -693,7 +796,6 @@ export default function AuctioneerConsolePage() {
                       )}
                     </div>
 
-                    {/* Big Action Buttons Row */}
                     <div className="flex items-center gap-2.5">
                       <button
                         onClick={() => {
@@ -708,7 +810,7 @@ export default function AuctioneerConsolePage() {
 
                       <button
                         onClick={() => setShowCustomInput(!showCustomInput)}
-                        className={`px-4 py-3.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-1.5 shrink-0 ${
+                        className={`px-4 py-3.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
                           showCustomInput || customBidAmount
                             ? 'bg-[#126BFF] border-sky-400 text-white shadow-[0_0_15px_rgba(18,107,255,0.6)]'
                             : 'bg-[#081d45] border-blue-500/30 text-slate-200 hover:text-white'
@@ -720,7 +822,6 @@ export default function AuctioneerConsolePage() {
                       </button>
                     </div>
 
-                    {/* Custom Bid Input expansion */}
                     {showCustomInput && (
                       <div className="flex items-center gap-2 p-2 bg-[#081d45] rounded-xl border border-blue-500/40 animate-fade-in">
                         <span className="text-xs font-bold text-slate-300 pl-2">Custom Amount: ₹</span>
@@ -739,7 +840,7 @@ export default function AuctioneerConsolePage() {
                             }
                           }}
                           disabled={!customBidAmount || !selectedTeamId}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shrink-0"
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shrink-0 cursor-pointer"
                         >
                           Submit
                         </button>
@@ -782,7 +883,6 @@ export default function AuctioneerConsolePage() {
                       )}
                     </div>
 
-                    {/* Watermark Gavel */}
                     <Gavel className="w-16 h-16 text-blue-900/15 absolute right-3 bottom-1 pointer-events-none" />
                   </div>
                 </div>
@@ -797,7 +897,7 @@ export default function AuctioneerConsolePage() {
                   </p>
                   <button
                     onClick={handleStart}
-                    className="mt-5 btn-neon-red px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider text-white flex items-center gap-2"
+                    className="mt-5 btn-neon-red px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider text-white flex items-center gap-2 cursor-pointer"
                   >
                     <Play className="w-4 h-4 fill-current" />
                     <span>START LIVE AUCTION</span>
@@ -821,8 +921,8 @@ export default function AuctioneerConsolePage() {
                   </span>
                 </div>
 
-                {/* 4 Team Cards Stacked */}
-                <div className="space-y-2.5">
+                {/* 4 Team Cards Stacked with Compact Squad & Player Actions */}
+                <div className="space-y-3">
                   {teams.map((t, idx) => {
                     const isSelected = selectedTeamId === t.teamId;
 
@@ -830,43 +930,74 @@ export default function AuctioneerConsolePage() {
                       <div
                         key={t.teamId}
                         onClick={() => setSelectedTeamId(t.teamId)}
-                        className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                        className={`p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
                           isSelected
                             ? 'team-card-selected-red'
                             : 'bg-[#081d45]/80 border-blue-500/25 hover:border-blue-400/50 hover:bg-[#0b275c]'
                         }`}
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          {/* Number badge [1] */}
-                          <span className="text-xs font-mono font-bold text-slate-400 w-5 shrink-0">
-                            [{idx + 1}]
-                          </span>
+                        {/* Upper row: Team initials, name, squad, purse */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="text-xs font-mono font-bold text-slate-400 w-5 shrink-0">
+                              [{idx + 1}]
+                            </span>
 
-                          {/* Team Abbreviation badge */}
-                          <div
-                            className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-xs shadow-md shrink-0 border border-white/20"
-                            style={{ backgroundColor: t.color || '#2563EB' }}
-                          >
-                            {t.abbreviation}
+                            <div
+                              className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-white text-xs shadow-md shrink-0 border border-white/20"
+                              style={{ backgroundColor: t.color || '#2563EB' }}
+                            >
+                              {t.abbreviation}
+                            </div>
+
+                            <div className="truncate">
+                              <h4 className="font-black text-xs sm:text-sm text-white leading-tight truncate">
+                                {t.name}
+                              </h4>
+                              <p className="text-[10px] text-slate-400 font-medium">
+                                Squad: <strong className="text-white">{t.squadCount}</strong>/{t.maxSquadLimit || 15}
+                              </p>
+                            </div>
                           </div>
 
-                          <div className="truncate">
-                            <h4 className="font-black text-sm text-white leading-tight truncate">
-                              {t.name}
-                            </h4>
-                            <p className="text-[11px] text-slate-400 font-medium">
-                              Squad: <strong className="text-white">{t.squadCount}</strong>/{t.maxSquadLimit || 15}
-                            </p>
+                          <div className="text-right shrink-0">
+                            <span className="text-[8px] uppercase font-black text-slate-400 block tracking-wider">
+                              PURSE
+                            </span>
+                            <span className="text-xs sm:text-sm font-black text-white tabular-nums">
+                              ₹{t.remainingPurse.toLocaleString()}
+                            </span>
                           </div>
                         </div>
 
-                        <div className="text-right shrink-0">
-                          <span className="text-[9px] uppercase font-black text-slate-400 block tracking-wider">
-                            PURSE
-                          </span>
-                          <span className="text-sm font-black text-white tabular-nums">
-                            ₹{t.remainingPurse.toLocaleString()}
-                          </span>
+                        {/* Lower action row: VIEW SQUAD & VIEW PLAYERS */}
+                        <div className="mt-2.5 pt-2 border-t border-blue-500/20 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setViewSquadTeam(t);
+                              setSquadRoleFilter('ALL');
+                            }}
+                            className="flex-1 py-1 px-2 rounded-lg bg-[#071d47]/90 hover:bg-[#126BFF]/30 text-sky-300 hover:text-white border border-[#126BFF]/40 hover:border-sky-400 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition-all shadow-xs cursor-pointer"
+                            title={`View ${t.name} purchased squad`}
+                          >
+                            <Users className="w-3 h-3 text-sky-400" />
+                            <span>VIEW SQUAD</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowPlayersModal(true);
+                            }}
+                            className="flex-1 py-1 px-2 rounded-lg bg-[#071d47]/90 hover:bg-[#FF183D]/25 text-slate-300 hover:text-white border border-blue-500/30 hover:border-red-400 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition-all shadow-xs cursor-pointer"
+                            title="Browse all tournament players directory"
+                          >
+                            <User className="w-3 h-3 text-red-400" />
+                            <span>VIEW PLAYERS</span>
+                          </button>
                         </div>
                       </div>
                     );
@@ -893,7 +1024,6 @@ export default function AuctioneerConsolePage() {
         {/* 4. DEDICATED SPONSORS SECTION — BELOW DASHBOARD         */}
         {/* ======================================================== */}
         <section className="mt-5 mb-2 flex flex-col items-center">
-          {/* Section Heading with Red Diagonal Speed Streaks */}
           <div className="flex items-center justify-center gap-3 mb-2">
             <span className="text-red-500 font-black tracking-widest text-sm">///</span>
             <h3 className="text-xs sm:text-sm font-black uppercase tracking-[0.25em] text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.4)]">
@@ -902,9 +1032,7 @@ export default function AuctioneerConsolePage() {
             <span className="text-red-500 font-black tracking-widest text-sm">///</span>
           </div>
 
-          {/* Full-Width White/Silver Glossy Sponsor Display Panel */}
           <div className="sponsor-bar-glow w-full bg-gradient-to-r from-slate-100 via-white to-slate-100 rounded-2xl relative overflow-hidden flex items-center justify-between px-6 sm:px-12 py-3 shadow-2xl">
-            {/* Left Angled Red/Blue Chevron Graphic Wing */}
             <div className="absolute left-0 top-0 bottom-0 w-24 sm:w-32 bg-gradient-to-r from-[#FF183D] via-[#126BFF] to-transparent transform -skew-x-25 -ml-8 pointer-events-none opacity-90" />
 
             {/* Sponsor 1: GOKUL OPTICS */}
@@ -916,7 +1044,6 @@ export default function AuctioneerConsolePage() {
               />
             </div>
 
-            {/* Vertical Silver Divider */}
             <div className="h-12 w-px bg-slate-300 relative z-10 mx-4" />
 
             {/* Sponsor 2: GOKUL BAGS */}
@@ -928,7 +1055,6 @@ export default function AuctioneerConsolePage() {
               />
             </div>
 
-            {/* Right Angled Red/Blue Chevron Graphic Wing */}
             <div className="absolute right-0 top-0 bottom-0 w-24 sm:w-32 bg-gradient-to-l from-[#FF183D] via-[#126BFF] to-transparent transform skew-x-25 -mr-8 pointer-events-none opacity-90" />
           </div>
         </section>
@@ -937,31 +1063,22 @@ export default function AuctioneerConsolePage() {
       {/* ======================================================== */}
       {/* 5. FOREGROUND CRICKET DECORATIONS                        */}
       {/* ======================================================== */}
-      {/* Bottom Left: Golden Wooden Cricket Wickets & Bails */}
       <div className="fixed bottom-0 left-3 pointer-events-none z-30 opacity-90 hidden sm:block">
         <svg width="90" height="120" viewBox="0 0 100 130" className="drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)]">
-          {/* Left Stump */}
           <rect x="20" y="25" width="8" height="100" rx="3" fill="#EAB308" stroke="#CA8A04" strokeWidth="1.5" />
           <rect x="22" y="28" width="3" height="92" fill="#FDE047" opacity="0.6" />
-          {/* Middle Stump */}
           <rect x="46" y="25" width="8" height="100" rx="3" fill="#EAB308" stroke="#CA8A04" strokeWidth="1.5" />
           <rect x="48" y="28" width="3" height="92" fill="#FDE047" opacity="0.6" />
-          {/* Right Stump */}
           <rect x="72" y="25" width="8" height="100" rx="3" fill="#EAB308" stroke="#CA8A04" strokeWidth="1.5" />
           <rect x="74" y="28" width="3" height="92" fill="#FDE047" opacity="0.6" />
-          {/* Left Bail */}
           <rect x="16" y="19" width="36" height="5" rx="2" fill="#FDE047" stroke="#CA8A04" strokeWidth="1" />
-          {/* Right Bail */}
           <rect x="48" y="19" width="36" height="5" rx="2" fill="#FDE047" stroke="#CA8A04" strokeWidth="1" />
         </svg>
       </div>
 
-      {/* Bottom Right: Glossy Red Cricket Leather Ball with Seam */}
       <div className="fixed bottom-1 right-4 pointer-events-none z-30 opacity-95 hidden sm:block">
         <svg width="100" height="100" viewBox="0 0 100 100" className="drop-shadow-[0_12px_24px_rgba(0,0,0,0.9)]">
-          {/* Red Leather Ball Body */}
           <circle cx="50" cy="50" r="44" fill="url(#ballGradient)" stroke="#88081a" strokeWidth="2" />
-          {/* Leather Seam curve with stitches */}
           <path
             d="M 22 25 Q 50 50 78 75"
             stroke="#FFFFFF"
@@ -975,7 +1092,6 @@ export default function AuctioneerConsolePage() {
             strokeWidth="1"
             fill="none"
           />
-          {/* Shiny Top Highlight */}
           <ellipse cx="40" cy="30" rx="14" ry="7" fill="#FFFFFF" opacity="0.35" transform="rotate(-30 40 30)" />
           <defs>
             <radialGradient id="ballGradient" cx="35%" cy="35%" r="70%">
@@ -988,42 +1104,454 @@ export default function AuctioneerConsolePage() {
       </div>
 
       {/* ======================================================== */}
-      {/* 6. MODALS: SOLD CELEBRATION & UNDO CONFIRMATION          */}
+      {/* 6. MODAL: VIEW SQUAD FOR FRANCHISE TEAM                  */}
       {/* ======================================================== */}
-      {/* Celebratory SOLD Modal Dialog */}
+      {viewSquadTeam && detailedSquadTeam && (
+        <Modal
+          isOpen={!!viewSquadTeam}
+          onClose={() => setViewSquadTeam(null)}
+          theme="dark"
+          maxWidth="2xl"
+          title={
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-sm shadow-md border border-white/20 shrink-0"
+                style={{ backgroundColor: detailedSquadTeam.color || '#2563EB' }}
+              >
+                {detailedSquadTeam.abbreviation}
+              </div>
+              <div>
+                <span className="text-xl font-black text-white tracking-tight">{detailedSquadTeam.name}</span>
+                <span className="text-xs text-sky-400 font-bold ml-2 uppercase">Squad Roster</span>
+              </div>
+            </div>
+          }
+          subtitle="Real-time acquired player breakdown and purse expenditure"
+        >
+          <div className="space-y-5">
+            {/* Franchise Purse & Squad Financial Overview Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-[#071d47] p-3 rounded-2xl border border-blue-500/30">
+                <span className="text-[10px] uppercase font-black text-slate-400 block tracking-wider">
+                  Squad Size
+                </span>
+                <span className="text-lg font-black text-white tabular-nums">
+                  {detailedSquadTeam.purchases?.length || detailedSquadTeam.squadCount || 0} / {detailedSquadTeam.maxSquadLimit || 15}
+                </span>
+              </div>
+
+              <div className="bg-[#071d47] p-3 rounded-2xl border border-blue-500/30">
+                <span className="text-[10px] uppercase font-black text-slate-400 block tracking-wider">
+                  Remaining Purse
+                </span>
+                <span className="text-lg font-black text-emerald-400 tabular-nums">
+                  ₹{Number(detailedSquadTeam.remainingPurse).toLocaleString()}
+                </span>
+              </div>
+
+              <div className="bg-[#071d47] p-3 rounded-2xl border border-blue-500/30">
+                <span className="text-[10px] uppercase font-black text-slate-400 block tracking-wider">
+                  Spent Purse
+                </span>
+                <span className="text-lg font-black text-rose-400 tabular-nums">
+                  ₹{Number(detailedSquadTeam.spentPurse || (Number(detailedSquadTeam.initialPurse || 50000) - Number(detailedSquadTeam.remainingPurse))).toLocaleString()}
+                </span>
+              </div>
+
+              <div className="bg-[#071d47] p-3 rounded-2xl border border-blue-500/30">
+                <span className="text-[10px] uppercase font-black text-slate-400 block tracking-wider">
+                  Initial Budget
+                </span>
+                <span className="text-lg font-black text-sky-300 tabular-nums">
+                  ₹{Number(detailedSquadTeam.initialPurse || 50000).toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            {/* Role Filter Chips Bar */}
+            <div className="flex items-center gap-1.5 flex-wrap pb-1 border-b border-blue-500/20">
+              <button
+                type="button"
+                onClick={() => setSquadRoleFilter('ALL')}
+                className={`px-3 py-1 rounded-full text-xs font-black transition-all cursor-pointer ${
+                  squadRoleFilter === 'ALL'
+                    ? 'bg-[#126BFF] text-white shadow-[0_0_12px_rgba(18,107,255,0.6)]'
+                    : 'bg-[#081d45] text-slate-300 hover:text-white border border-blue-500/30'
+                }`}
+              >
+                All ({squadRoleCounts.all})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSquadRoleFilter('BATSMAN')}
+                className={`px-3 py-1 rounded-full text-xs font-black transition-all cursor-pointer ${
+                  squadRoleFilter === 'BATSMAN'
+                    ? 'bg-[#126BFF] text-white shadow-[0_0_12px_rgba(18,107,255,0.6)]'
+                    : 'bg-[#081d45] text-slate-300 hover:text-white border border-blue-500/30'
+                }`}
+              >
+                Batsmen ({squadRoleCounts.batsman})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSquadRoleFilter('BOWLER')}
+                className={`px-3 py-1 rounded-full text-xs font-black transition-all cursor-pointer ${
+                  squadRoleFilter === 'BOWLER'
+                    ? 'bg-[#126BFF] text-white shadow-[0_0_12px_rgba(18,107,255,0.6)]'
+                    : 'bg-[#081d45] text-slate-300 hover:text-white border border-blue-500/30'
+                }`}
+              >
+                Bowlers ({squadRoleCounts.bowler})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSquadRoleFilter('ALL_ROUNDER')}
+                className={`px-3 py-1 rounded-full text-xs font-black transition-all cursor-pointer ${
+                  squadRoleFilter === 'ALL_ROUNDER'
+                    ? 'bg-[#126BFF] text-white shadow-[0_0_12px_rgba(18,107,255,0.6)]'
+                    : 'bg-[#081d45] text-slate-300 hover:text-white border border-blue-500/30'
+                }`}
+              >
+                All Rounders ({squadRoleCounts.allRounder})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSquadRoleFilter('WICKET_KEEPER')}
+                className={`px-3 py-1 rounded-full text-xs font-black transition-all cursor-pointer ${
+                  squadRoleFilter === 'WICKET_KEEPER'
+                    ? 'bg-[#126BFF] text-white shadow-[0_0_12px_rgba(18,107,255,0.6)]'
+                    : 'bg-[#081d45] text-slate-300 hover:text-white border border-blue-500/30'
+                }`}
+              >
+                Wicket Keepers ({squadRoleCounts.wicketKeeper})
+              </button>
+            </div>
+
+            {/* Squad Players List / Empty State */}
+            {squadPurchases.length > 0 ? (
+              <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
+                {squadPurchases.map((purchase: any) => {
+                  const p = purchase.player || purchase;
+                  return (
+                    <div
+                      key={purchase.id || p.id}
+                      className="p-3 bg-[#081d45]/90 rounded-2xl border border-blue-500/30 flex items-center justify-between gap-4 hover:border-sky-400/60 transition-all shadow-xs"
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        {p.photoUrl ? (
+                          <img
+                            src={p.photoUrl}
+                            alt={p.fullName}
+                            className="w-12 h-12 rounded-xl object-cover border border-[#126BFF]/40 shadow-xs shrink-0"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-blue-900 to-indigo-900 text-sky-300 font-black text-lg flex items-center justify-center shrink-0 border border-blue-500/30">
+                            {p.fullName?.charAt(0) || 'P'}
+                          </div>
+                        )}
+
+                        <div className="truncate">
+                          <h4 className="font-black text-sm text-white tracking-tight leading-tight truncate">
+                            {p.fullName}
+                          </h4>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="bg-[#FF183D] text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                              {String(p.role).replace(/_/g, ' ')}
+                            </span>
+                            <span className="text-[10px] text-purple-300 font-bold px-2 py-0.5 rounded-full bg-purple-950/60 border border-purple-500/30">
+                              {p.playerCategory || 'Regular'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-[9px] uppercase font-bold text-slate-400 block tracking-wider">
+                          PURCHASE PRICE
+                        </span>
+                        <span className="text-base font-black text-emerald-400 tabular-nums">
+                          ₹{Number(purchase.purchasePrice || p.purchasePrice || p.basePrice).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-12 px-6 text-center bg-[#07193b]/60 rounded-3xl border border-dashed border-blue-500/30 flex flex-col items-center justify-center">
+                <div className="w-16 h-16 rounded-2xl bg-[#0a2352] text-sky-400 flex items-center justify-center mb-3">
+                  <Users className="w-8 h-8" />
+                </div>
+                <h4 className="text-base font-black text-white">No Players Acquired Yet</h4>
+                <p className="text-xs text-slate-400 max-w-sm mt-1">
+                  {squadRoleFilter === 'ALL'
+                    ? `${detailedSquadTeam.name} has not acquired any players in the auction so far.`
+                    : `No ${squadRoleFilter.replace(/_/g, ' ')} players have been acquired by ${detailedSquadTeam.name}.`}
+                </p>
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setViewSquadTeam(null)}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors cursor-pointer"
+              >
+                Close Squad Roster
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ======================================================== */}
+      {/* 7. MODAL: VIEW PLAYERS DIRECTORY (ALL PLAYERS)          */}
+      {/* ======================================================== */}
+      {showPlayersModal && (
+        <Modal
+          isOpen={showPlayersModal}
+          onClose={() => setShowPlayersModal(false)}
+          theme="dark"
+          maxWidth="4xl"
+          title={
+            <div className="flex items-center gap-2.5">
+              <Users className="w-6 h-6 text-sky-400" />
+              <span className="text-xl font-black text-white tracking-tight uppercase">Tournament Player Directory</span>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-600/30 text-sky-300 border border-blue-500/40">
+                {filteredPlayers.length} / {allPlayersList.length} Players
+              </span>
+            </div>
+          }
+          subtitle="Explore all registered cricket players, base prices, categories, and real-time live auction allocation"
+        >
+          <div className="space-y-4">
+            {/* Search and Filters Toolbar */}
+            <div className="bg-[#071d47] p-3.5 rounded-2xl border border-blue-500/30 flex flex-wrap items-center justify-between gap-3">
+              {/* Search input */}
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={playerSearch}
+                  onChange={(e) => setPlayerSearch(e.target.value)}
+                  placeholder="Search player name or city..."
+                  className="w-full pl-9 pr-8 py-1.5 bg-[#040f26] border border-blue-500/30 rounded-xl text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-sky-400"
+                />
+                {playerSearch && (
+                  <button
+                    onClick={() => setPlayerSearch('')}
+                    className="absolute right-2.5 top-2 text-slate-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Role Filter */}
+              <select
+                value={playerRoleFilter}
+                onChange={(e) => setPlayerRoleFilter(e.target.value)}
+                className="px-3 py-1.5 bg-[#040f26] border border-blue-500/30 rounded-xl text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+              >
+                <option value="ALL">All Roles</option>
+                <option value="BATSMAN">Batsman</option>
+                <option value="BOWLER">Bowler</option>
+                <option value="ALL_ROUNDER">All Rounder</option>
+                <option value="WICKET_KEEPER">Wicket Keeper</option>
+              </select>
+
+              {/* Category Filter */}
+              <select
+                value={playerCategoryFilter}
+                onChange={(e) => setPlayerCategoryFilter(e.target.value)}
+                className="px-3 py-1.5 bg-[#040f26] border border-blue-500/30 rounded-xl text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+              >
+                <option value="ALL">All Categories</option>
+                <option value="Marquee">Marquee</option>
+                <option value="A-Grade">A-Grade</option>
+                <option value="B-Grade">B-Grade</option>
+                <option value="Regular">Regular</option>
+              </select>
+
+              {/* Status Filter */}
+              <div className="flex items-center bg-[#040f26] p-0.5 rounded-xl border border-blue-500/30 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setPlayerStatusFilter('ALL')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    playerStatusFilter === 'ALL' ? 'bg-[#126BFF] text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlayerStatusFilter('AVAILABLE')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    playerStatusFilter === 'AVAILABLE' ? 'bg-[#126BFF] text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  In Pool
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlayerStatusFilter('SOLD')}
+                  className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                    playerStatusFilter === 'SOLD' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Sold
+                </button>
+              </div>
+
+              {/* Sort selector */}
+              <select
+                value={playerSortBy}
+                onChange={(e) => setPlayerSortBy(e.target.value as any)}
+                className="px-3 py-1.5 bg-[#040f26] border border-blue-500/30 rounded-xl text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+              >
+                <option value="NAME">Sort: Name (A-Z)</option>
+                <option value="PRICE_HIGH">Sort: Base Price (High-Low)</option>
+                <option value="PRICE_LOW">Sort: Base Price (Low-High)</option>
+              </select>
+            </div>
+
+            {/* Players Table / Directory Grid */}
+            {filteredPlayers.length > 0 ? (
+              <div className="max-h-[55vh] overflow-y-auto pr-1 space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {filteredPlayers.map((p) => {
+                    const purchase = p.purchases?.[0];
+                    const isSold = !!purchase;
+
+                    return (
+                      <div
+                        key={p.id}
+                        className={`p-3 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                          isSold
+                            ? 'bg-[#07193b]/70 border-emerald-500/40'
+                            : 'bg-[#081d45]/90 border-blue-500/30 hover:border-sky-400'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {p.photoUrl ? (
+                            <img
+                              src={p.photoUrl}
+                              alt={p.fullName}
+                              className="w-12 h-12 rounded-xl object-cover border border-[#126BFF]/40 shadow-xs shrink-0"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-blue-900 to-indigo-900 text-sky-300 font-black text-lg flex items-center justify-center shrink-0 border border-blue-500/30">
+                              {p.fullName?.charAt(0) || 'P'}
+                            </div>
+                          )}
+
+                          <div className="truncate">
+                            <h4 className="font-black text-sm text-white tracking-tight leading-tight truncate">
+                              {p.fullName}
+                            </h4>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="bg-[#FF183D] text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                                {String(p.role).replace(/_/g, ' ')}
+                              </span>
+                              <span className="text-[10px] text-purple-300 font-bold px-2 py-0.5 rounded-full bg-purple-950/60 border border-purple-500/30">
+                                {p.playerCategory || 'Regular'}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 mt-1 block">
+                              Base: <strong className="text-white">₹{Number(p.basePrice).toLocaleString()}</strong>
+                              {p.city && ` • ${p.city}`}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Status Badge */}
+                        <div className="text-right shrink-0">
+                          {isSold ? (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-xs">
+                                <CheckCircle className="w-3 h-3 text-emerald-400" />
+                                <span>SOLD</span>
+                              </span>
+                              <span className="text-xs font-black text-white block">
+                                {purchase.team?.name || 'Franchise'}
+                              </span>
+                              <span className="text-[11px] font-bold text-emerald-400 block tabular-nums">
+                                ₹{Number(purchase.purchasePrice).toLocaleString()}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-blue-500/20 text-sky-300 border border-blue-500/40">
+                              <Layers className="w-3 h-3 text-sky-400" />
+                              <span>IN POOL</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="py-12 text-center bg-[#07193b]/60 rounded-3xl border border-dashed border-blue-500/30 flex flex-col items-center justify-center">
+                <Search className="w-10 h-10 text-slate-400 mb-2" />
+                <h4 className="text-base font-black text-white">No Players Found</h4>
+                <p className="text-xs text-slate-400 mt-1">
+                  No cricket players match your search filter criteria. Try clearing search or category filters.
+                </p>
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowPlayersModal(false)}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors cursor-pointer"
+              >
+                Close Directory
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ======================================================== */}
+      {/* 8. CELEBRATORY SOLD MODAL & UNDO CONFIRMATION            */}
+      {/* ======================================================== */}
       <Modal
         isOpen={showSoldModal}
         onClose={() => setShowSoldModal(false)}
         maxWidth="md"
         showCloseButton={false}
+        theme="dark"
       >
         {lastSoldData && (
           <div className="text-center p-4">
-            <div className="w-20 h-20 mx-auto rounded-3xl bg-emerald-500/10 border-2 border-emerald-500 flex items-center justify-center text-emerald-500 shadow-glow-green mb-4">
+            <div className="w-20 h-20 mx-auto rounded-3xl bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center text-emerald-400 shadow-[0_0_30px_rgba(34,197,94,0.5)] mb-4">
               <Trophy className="w-10 h-10" />
             </div>
 
-            <span className="text-xs font-black uppercase tracking-widest text-emerald-600 block mb-1">
+            <span className="text-xs font-black uppercase tracking-widest text-emerald-400 block mb-1">
               🎉 PLAYER OFFICIALLY SOLD!
             </span>
-            <h3 className="text-2xl md:text-3xl font-black text-gray-900 tracking-tight">
+            <h3 className="text-2xl md:text-3xl font-black text-white tracking-tight">
               {lastSoldData.playerName}
             </h3>
 
-            <div className="my-5 p-4 bg-gray-50 rounded-2xl border border-gray-200 flex items-center justify-between">
+            <div className="my-5 p-4 bg-[#071d47] rounded-2xl border border-blue-500/30 flex items-center justify-between">
               <div className="text-left">
-                <span className="text-[10px] uppercase font-bold text-gray-400 block">Acquired By</span>
-                <span className="text-base font-black text-gray-900">{lastSoldData.teamName}</span>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Acquired By</span>
+                <span className="text-base font-black text-white">{lastSoldData.teamName}</span>
               </div>
               <div className="text-right">
-                <span className="text-[10px] uppercase font-bold text-gray-400 block">Final Sale Price</span>
-                <span className="text-xl font-black text-brand-600 tabular-nums">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Final Sale Price</span>
+                <span className="text-xl font-black text-emerald-400 tabular-nums">
                   ₹{Number(lastSoldData.price).toLocaleString()}
                 </span>
               </div>
             </div>
 
-            <p className="text-xs text-gray-500 mb-6">
+            <p className="text-xs text-slate-400 mb-6">
               Automated congratulations message dispatched via WhatsApp Cloud API &amp; email outbox.
             </p>
 
@@ -1046,16 +1574,17 @@ export default function AuctioneerConsolePage() {
         title="Audited Action Reversal"
         subtitle="Reverse the last accepted bid or purchase. This operation will be logged in the audit trail."
         maxWidth="sm"
+        theme="dark"
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">Reason for Reversal</label>
+            <label className="block text-xs font-bold text-slate-300 mb-1">Reason for Reversal</label>
             <input
               type="text"
               value={undoReason}
               onChange={(e) => setUndoReason(e.target.value)}
               placeholder="e.g. Host accidental paddle tap"
-              className="w-full px-3 py-2 bg-gray-50 border border-admin-border rounded-xl text-xs font-semibold focus:outline-none"
+              className="w-full px-3 py-2 bg-[#040f26] border border-blue-500/40 rounded-xl text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-sky-400"
             />
           </div>
 
@@ -1063,7 +1592,7 @@ export default function AuctioneerConsolePage() {
             <Button
               variant="outline"
               size="sm"
-              className="flex-1"
+              className="flex-1 bg-slate-800 text-white border-slate-700"
               onClick={() => setShowUndoModal(false)}
             >
               Cancel
@@ -1087,22 +1616,23 @@ export default function AuctioneerConsolePage() {
         title="Auctioneer Console Settings"
         subtitle="Configure auction modes, timer durations, and keyboard controls"
         maxWidth="md"
+        theme="dark"
       >
         <div className="space-y-4">
-          <div className="p-3 bg-slate-50 rounded-xl border border-gray-200">
-            <span className="text-xs font-bold text-gray-900 block mb-1">Active Auction Mode</span>
-            <p className="text-xs text-gray-500 mb-2">Toggle between Online, Offline/Paddle, and Hybrid modes.</p>
+          <div className="p-3 bg-[#071d47] rounded-xl border border-blue-500/30">
+            <span className="text-xs font-bold text-white block mb-1">Active Auction Mode</span>
+            <p className="text-xs text-slate-400 mb-2">Toggle between Online, Offline/Paddle, and Hybrid modes.</p>
             <div className="flex gap-2">
               <button className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold">Hybrid Mode</button>
-              <button className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">Online Only</button>
-              <button className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold">Offline Paddle</button>
+              <button className="px-3 py-1.5 bg-[#040f26] text-slate-300 rounded-lg text-xs font-bold">Online Only</button>
+              <button className="px-3 py-1.5 bg-[#040f26] text-slate-300 rounded-lg text-xs font-bold">Offline Paddle</button>
             </div>
           </div>
 
-          <div className="p-3 bg-slate-50 rounded-xl border border-gray-200 flex items-center justify-between">
+          <div className="p-3 bg-[#071d47] rounded-xl border border-blue-500/30 flex items-center justify-between">
             <div>
-              <span className="text-xs font-bold text-gray-900 block">Automated Sound Alerts</span>
-              <p className="text-[11px] text-gray-500">Play chime when new bid arrives or hammer drops</p>
+              <span className="text-xs font-bold text-white block">Automated Sound Alerts</span>
+              <p className="text-[11px] text-slate-400">Play chime when new bid arrives or hammer drops</p>
             </div>
             <input type="checkbox" defaultChecked className="w-4 h-4 text-blue-600 rounded" />
           </div>

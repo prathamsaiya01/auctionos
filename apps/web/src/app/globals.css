@@ -137,3 +137,37 @@ body {
   border: 2px solid #126BFF;
   box-shadow: 0 0 30px rgba(18, 107, 255, 0.45), 0 0 10px rgba(18, 107, 255, 0.2);
 }
+
+/* Marquee Scoreboard with stadium light bulbs */
+.scoreboard-marquee {
+  background: radial-gradient(ellipse at center, #B8001F 0%, #800012 60%, #4D000A 100%);
+  border: 2px solid #FF183D;
+  box-shadow: 0 0 30px rgba(255, 24, 61, 0.75), inset 0 0 25px rgba(0, 0, 0, 0.6);
+}
+
+.scoreboard-bulb {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: #FFFBEB;
+  box-shadow: 0 0 8px #FFD700, 0 0 14px #FFA500;
+  animation: bulbTwinkle 1.8s infinite ease-in-out;
+}
+
+@keyframes bulbTwinkle {
+  0%, 100% {
+    opacity: 0.85;
+    filter: brightness(1.2);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.7);
+  }
+}
+
+/* Gold Base Price Glow */
+.gold-base-price-box {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.9) 100%);
+  border: 2px solid #FFC928;
+  box-shadow: 0 0 20px rgba(255, 201, 40, 0.35), inset 0 0 12px rgba(255, 201, 40, 0.12);
+}
